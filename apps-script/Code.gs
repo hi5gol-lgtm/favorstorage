@@ -27,8 +27,11 @@ var CONFIG = {
   IMAGE_COL_WIDTH: 90
 };
 
-var INTERNAL_HEADERS = ['품번', '상품명', '식별코드', '거래처', '원가', '판매가', '재고', '이미지', '이미지URL', '등록일시'];
-var SELLER_HEADERS = ['품번', '상품명', '판매가', '재고', '이미지', '상품설명'];
+// 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 식별코드(7) 거래처(8)
+//                  원가(9) 판매가(10) 재고(11) 이미지URL(12) 등록일시(13) [배수(14) 자동계산]
+var INTERNAL_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '식별코드', '거래처', '원가', '판매가', '재고', '이미지URL', '등록일시'];
+// 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 판매가(7) 재고(8)
+var SELLER_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '판매가', '재고'];
 
 // ===== ENTRY POINTS =====
 
@@ -55,6 +58,7 @@ function doPost(e) {
     if (body.action === 'save') return jsonOut_(saveProduct_(body));
     if (body.action === 'addVendor') return jsonOut_({ ok: true, vendors: addVendorIfMissing_(body.vendor) });
     if (body.action === 'updateImage') return jsonOut_(updateImage_(body));
+    if (body.action === 'update') return jsonOut_(updateProduct_(body));
     if (body.action === 'delete') return jsonOut_(deleteProduct_(body));
 
     return jsonOut_({ ok: false, error: 'unknown action' });
@@ -69,19 +73,15 @@ function setup() {
   var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var productSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(productSheet, INTERNAL_HEADERS);
+  ensureMultiplierColumn_(productSheet);
+  cleanupBlankInternalRows_();
 
   var vendorSheet = internalSs.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || internalSs.insertSheet(CONFIG.VENDOR_SHEET_NAME);
   ensureHeader_(vendorSheet, ['거래처명']);
 
-  // K/L열 배수 수식 복구 + 품번 빈 유령 행 삭제 (몇 번을 다시 실행해도 안전함)
-  fixInternalMultiplierColumns_();
-  cleanupBlankInternalRows_();
-  ensureDescriptionColumn_(productSheet);
-
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
-  ensureColumnHeader_(sellerSheet, 6, '상품설명');
 
   Logger.log('setup 완료');
 }
@@ -95,50 +95,21 @@ function ensureHeader_(sheet, headers) {
   }
 }
 
-// 내부용 시트 K열: 원가 대비 판매가 배수 (3.5배 표준에서 벗어난 경우만 표시)
-// ARRAYFORMULA가 열 전체를 스스로 채우므로, 이 열에는 절대 다른 값을 개별 setValue로 쓰면 안 됨
-// (수식과 충돌해서 재계산 시 덮어써짐 — 상품설명이 M열로 분리된 이유)
+// 내부용 시트 N열: 원가(I) 대비 판매가(J) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
+// ARRAYFORMULA가 열 전체를 스스로 채우므로, 이 열에는 절대 다른 값을 개별 setValue로 쓰면 안 됨.
 function ensureMultiplierColumn_(sheet) {
-  var header = sheet.getRange(1, 11).getValue();
+  var header = sheet.getRange(1, 14).getValue();
   if (String(header).trim() === '') {
-    sheet.getRange(1, 11).setValue('배수');
-    sheet.getRange(2, 11).setFormula(
-      '=ARRAYFORMULA(IF(E2:E="","",IF(E2:E=0,"",IF(ROUND(F2:F/E2:E,2)=3.5,"",ROUND(F2:F/E2:E,2)))))'
+    sheet.getRange(1, 14).setValue('배수');
+    sheet.getRange(2, 14).setFormula(
+      '=ARRAYFORMULA(IF(I2:I="","",IF(I2:I=0,"",ROUND(J2:J/I2:I,2))))'
     );
   }
 }
 
-// 내부용 시트 M열: 상품설명 (K열 배수 수식과 겹치지 않도록 별도 열 사용)
-function ensureDescriptionColumn_(sheet) {
-  var header = sheet.getRange(1, 13).getValue();
-  if (String(header).trim() === '') {
-    sheet.getRange(1, 13).setValue('상품설명');
-  }
-}
-
-// 시트의 특정 헤더 칸이 비어있을 때만 라벨을 채움 (이미 데이터가 있는 기존 시트에 새 컬럼을 추가할 때 사용)
-function ensureColumnHeader_(sheet, col, label) {
-  var header = sheet.getRange(1, col).getValue();
-  if (String(header).trim() === '') {
-    sheet.getRange(1, col).setValue(label);
-  }
-}
-
-// 일회성 정리: 이전 배포에서 상품설명을 K/L열(배수 수식 영역)에 잘못 쓴 흔적을 지우고
-// 배수 수식을 K열 하나로 복구한다. Apps Script 에디터에서 이 함수를 한 번 수동 실행할 것.
-function fixInternalMultiplierColumns_() {
-  var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
-  var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
-  if (!sheet) return;
-  var maxRows = sheet.getMaxRows();
-  sheet.getRange(1, 11, maxRows, 2).clearContent(); // K, L열 전체 초기화
-  ensureMultiplierColumn_(sheet);
-  Logger.log('K/L열 정리 완료');
-}
-
 // A열(품번)이 비어있는 행 중 실제 마지막으로 데이터가 있는 행 번호를 반환.
-// sheet.getLastRow()는 K열 ARRAYFORMULA의 스필 범위까지 "데이터 있음"으로 잡아서
-// 시트 끝까지(약 1000행) 부풀려지는 문제가 있어 대신 사용한다.
+// sheet.getLastRow()는 N열 ARRAYFORMULA의 스필 범위까지 "데이터 있음"으로 잡아서
+// 시트 끝까지 부풀려지는 문제가 있어 대신 사용한다.
 function getLastDataRow_(sheet) {
   var maxRows = sheet.getMaxRows();
   if (maxRows < 2) return 1;
@@ -149,8 +120,7 @@ function getLastDataRow_(sheet) {
   return 1;
 }
 
-// 일회성 정리: K열 ARRAYFORMULA 버블로 인해 저장 위치가 밀리면서 생긴,
-// A열(품번)이 빈 행들을 전부 삭제한다. Apps Script 에디터에서 한 번 수동 실행할 것.
+// A열(품번)이 빈 행들을 전부 삭제한다 (배수 수식 버블 등으로 생길 수 있는 빈 행 정리용, 안전하게 반복 실행 가능).
 function cleanupBlankInternalRows_() {
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
@@ -159,8 +129,6 @@ function cleanupBlankInternalRows_() {
   var codes = sheet.getRange(2, 1, maxRows - 1, 1).getValues();
   var deleted = 0;
   var i = codes.length - 1;
-  // 연속된 빈 행 구간을 찾아 deleteRows로 한 번에 삭제 (deleteRow를 개별 호출하면
-  // 900번 가까운 API 호출이 발생해 몇 분 넘게 걸리고 6분 실행 제한에 걸릴 수 있음)
   while (i >= 0) {
     if (String(codes[i][0]).trim() === '') {
       var end = i;
@@ -212,13 +180,16 @@ function checkDuplicate_(code) {
   if (!sheet) return { ok: true, exists: false };
   var lastRow = getLastDataRow_(sheet);
   if (lastRow < 2) return { ok: true, exists: false };
-  var values = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // 품번, 상품명
+  var values = sheet.getRange(2, 1, lastRow - 1, 3).getValues(); // A 품번, C 상품명
+  var found = false;
+  var name = '';
   for (var i = 0; i < values.length; i++) {
     if (String(values[i][0]).trim() === code) {
-      return { ok: true, exists: true, name: values[i][1] };
+      found = true;
+      name = values[i][2];
     }
   }
-  return { ok: true, exists: false };
+  return { ok: true, exists: found, name: name };
 }
 
 // ===== LIST =====
@@ -231,22 +202,25 @@ function listProducts_(limit) {
   if (lastRow < 2) return [];
   var startRow = Math.max(2, lastRow - limit + 1);
   var numRows = lastRow - startRow + 1;
-  // A 품번, B 상품명, C 식별코드, D 거래처, E 원가, F 판매가, G 재고, H 이미지, I 이미지URL, J 등록일시, K 배수, M 상품설명
-  var values = sheet.getRange(startRow, 1, numRows, 13).getValues();
+  // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 상품설명, G 식별코드, H 거래처,
+  // I 원가, J 판매가, K 재고, L 이미지URL, M 등록일시, N 배수
+  var values = sheet.getRange(startRow, 1, numRows, 14).getValues();
   var items = [];
   for (var i = values.length - 1; i >= 0; i--) {
     var row = values[i];
     items.push({
       row: startRow + i,
       code: row[0],
-      name: row[1],
-      internalCode: row[2],
-      vendor: row[3],
-      cost: row[4],
-      price: row[5],
-      stock: row[6],
-      imageUrl: row[8] || '',
-      description: row[12] || ''
+      name: row[2],
+      option1: row[3] || '',
+      option2: row[4] || '',
+      description: row[5] || '',
+      internalCode: row[6],
+      vendor: row[7],
+      cost: row[8],
+      price: row[9],
+      stock: row[10],
+      imageUrl: row[11] || ''
     });
   }
   return items;
@@ -257,6 +231,8 @@ function listProducts_(limit) {
 function saveProduct_(body) {
   var productCode = String(body.productCode || '').trim();
   var productName = String(body.productName || '').trim();
+  var option1 = String(body.productOption1 || '').trim();
+  var option2 = String(body.productOption2 || '').trim();
   var internalCode = String(body.internalCode || '').trim();
   var vendor = String(body.vendor || '').trim();
   var cost = Number(body.cost) || 0;
@@ -285,27 +261,103 @@ function saveProduct_(body) {
   var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(internalSheet, INTERNAL_HEADERS);
   ensureMultiplierColumn_(internalSheet);
-  ensureDescriptionColumn_(internalSheet);
-  var internalRow = getLastDataRow_(internalSheet) + 1;
-  internalSheet.getRange(internalRow, 1, 1, 7).setValues([[productCode, productName, internalCode, vendor, cost, price, stock]]);
-  internalSheet.getRange(internalRow, 9).setValue(imageUrl);
-  internalSheet.getRange(internalRow, 10).setValue(now);
-  internalSheet.getRange(internalRow, 13).setValue(productDescription);
-  if (imageUrl) setCellImage_(internalSheet, internalRow, 8, imageUrl);
-  internalSheet.setRowHeight(internalRow, CONFIG.IMAGE_ROW_HEIGHT);
-  internalSheet.setColumnWidth(8, CONFIG.IMAGE_COL_WIDTH);
+  var newRow = getLastDataRow_(internalSheet) + 1;
 
-  // ---- 셀러용 시트 ----
+  internalSheet.getRange(newRow, 1).setValue(productCode);
+  internalSheet.getRange(newRow, 3).setValue(productName);
+  internalSheet.getRange(newRow, 4).setValue(option1);
+  internalSheet.getRange(newRow, 5).setValue(option2);
+  internalSheet.getRange(newRow, 6).setValue(productDescription);
+  internalSheet.getRange(newRow, 7).setValue(internalCode);
+  internalSheet.getRange(newRow, 8).setValue(vendor);
+  internalSheet.getRange(newRow, 9).setValue(cost);
+  internalSheet.getRange(newRow, 10).setValue(price);
+  internalSheet.getRange(newRow, 11).setValue(stock);
+  internalSheet.getRange(newRow, 12).setValue(imageUrl);
+  internalSheet.getRange(newRow, 13).setValue(now);
+  if (imageUrl) setCellImage_(internalSheet, newRow, 2, imageUrl);
+  internalSheet.setRowHeight(newRow, CONFIG.IMAGE_ROW_HEIGHT);
+  internalSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
+
+  // ---- 셀러용 시트: 내부용과 항상 같은 행 번호를 써서 두 시트가 1:1로 정렬되게 유지한다 ----
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
-  ensureColumnHeader_(sellerSheet, 6, '상품설명');
-  var sellerRow = sellerSheet.getLastRow() + 1;
-  sellerSheet.getRange(sellerRow, 1, 1, 4).setValues([[productCode, productName, price, stock]]);
+  var sellerRow = newRow;
+
+  sellerSheet.getRange(sellerRow, 1).setValue(productCode);
+  sellerSheet.getRange(sellerRow, 3).setValue(productName);
+  sellerSheet.getRange(sellerRow, 4).setValue(option1);
+  sellerSheet.getRange(sellerRow, 5).setValue(option2);
   sellerSheet.getRange(sellerRow, 6).setValue(productDescription);
-  if (imageUrl) setCellImage_(sellerSheet, sellerRow, 5, imageUrl);
+  sellerSheet.getRange(sellerRow, 7).setValue(price);
+  sellerSheet.getRange(sellerRow, 8).setValue(stock);
+  if (imageUrl) setCellImage_(sellerSheet, sellerRow, 2, imageUrl);
   sellerSheet.setRowHeight(sellerRow, CONFIG.IMAGE_ROW_HEIGHT);
-  sellerSheet.setColumnWidth(5, CONFIG.IMAGE_COL_WIDTH);
+  sellerSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
+
+  return { ok: true };
+}
+
+// ===== UPDATE (등록된 상품 목록 화면에서 필드 직접 수정) =====
+// 이미지는 다루지 않는다 — 사진 교체는 updateImage_ 전용 흐름 사용.
+
+function updateProduct_(body) {
+  var row = Number(body.row) || 0;
+  var originalCode = String(body.originalCode || '').trim();
+  if (!row || !originalCode) return { ok: false, error: 'row/originalCode가 필요합니다.' };
+
+  var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
+  if (!internalSheet) return { ok: false, error: '내부용 시트를 찾을 수 없습니다.' };
+
+  var rowCode = String(internalSheet.getRange(row, 1).getValue()).trim();
+  if (rowCode !== originalCode) {
+    return { ok: false, error: '품번이 일치하지 않습니다. (해당 행이 이미 변경되었을 수 있습니다. 새로고침 후 다시 시도해주세요)' };
+  }
+
+  var productCode = String(body.productCode || '').trim();
+  var productName = String(body.productName || '').trim();
+  var option1 = String(body.productOption1 || '').trim();
+  var option2 = String(body.productOption2 || '').trim();
+  var productDescription = String(body.productDescription || '').trim();
+  var internalCode = String(body.internalCode || '').trim();
+  var vendor = String(body.vendor || '').trim();
+  var cost = Number(body.cost) || 0;
+  var price = Number(body.price) || 0;
+  var stock = Number(body.stock) || 0;
+
+  if (!productCode || !productName) {
+    return { ok: false, error: '품번/상품명은 필수입니다.' };
+  }
+  if (vendor) addVendorIfMissing_(vendor);
+
+  internalSheet.getRange(row, 1).setValue(productCode);
+  internalSheet.getRange(row, 3).setValue(productName);
+  internalSheet.getRange(row, 4).setValue(option1);
+  internalSheet.getRange(row, 5).setValue(option2);
+  internalSheet.getRange(row, 6).setValue(productDescription);
+  internalSheet.getRange(row, 7).setValue(internalCode);
+  internalSheet.getRange(row, 8).setValue(vendor);
+  internalSheet.getRange(row, 9).setValue(cost);
+  internalSheet.getRange(row, 10).setValue(price);
+  internalSheet.getRange(row, 11).setValue(stock);
+
+  // 셀러용 시트: 내부용과 같은 행 번호 사용 (saveProduct_와 동일한 1:1 정렬 원칙)
+  var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
+  var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
+  if (sellerSheet) {
+    var sellerRowCode = String(sellerSheet.getRange(row, 1).getValue()).trim();
+    if (sellerRowCode === originalCode) {
+      sellerSheet.getRange(row, 1).setValue(productCode);
+      sellerSheet.getRange(row, 3).setValue(productName);
+      sellerSheet.getRange(row, 4).setValue(option1);
+      sellerSheet.getRange(row, 5).setValue(option2);
+      sellerSheet.getRange(row, 6).setValue(productDescription);
+      sellerSheet.getRange(row, 7).setValue(price);
+      sellerSheet.getRange(row, 8).setValue(stock);
+    }
+  }
 
   return { ok: true };
 }
@@ -329,27 +381,20 @@ function updateImage_(body) {
 
   var driveFile = saveImageToDrive_(body.imageBase64, body.imageMimeType || 'image/jpeg', productCode);
 
-  internalSheet.getRange(row, 9).setValue(driveFile.url);
-  setCellImage_(internalSheet, row, 8, driveFile.url);
+  internalSheet.getRange(row, 12).setValue(driveFile.url);
+  setCellImage_(internalSheet, row, 2, driveFile.url);
   internalSheet.setRowHeight(row, CONFIG.IMAGE_ROW_HEIGHT);
-  internalSheet.setColumnWidth(8, CONFIG.IMAGE_COL_WIDTH);
+  internalSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
 
-  // 셀러용 시트: 같은 품번의 가장 마지막(최근) 행을 찾아 갱신
+  // 셀러용 시트: 내부용과 같은 행 번호를 사용 (품번이 옵션끼리 같을 수 있어 품번만으로 찾으면 엉뚱한 옵션이 바뀔 수 있음)
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
   if (sellerSheet) {
-    var lastRow = sellerSheet.getLastRow();
-    if (lastRow >= 2) {
-      var codes = sellerSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = codes.length - 1; i >= 0; i--) {
-        if (String(codes[i][0]).trim() === productCode) {
-          var sellerRow = i + 2;
-          setCellImage_(sellerSheet, sellerRow, 5, driveFile.url);
-          sellerSheet.setRowHeight(sellerRow, CONFIG.IMAGE_ROW_HEIGHT);
-          sellerSheet.setColumnWidth(5, CONFIG.IMAGE_COL_WIDTH);
-          break;
-        }
-      }
+    var sellerRowCode = String(sellerSheet.getRange(row, 1).getValue()).trim();
+    if (sellerRowCode === productCode) {
+      setCellImage_(sellerSheet, row, 2, driveFile.url);
+      sellerSheet.setRowHeight(row, CONFIG.IMAGE_ROW_HEIGHT);
+      sellerSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
     }
   }
 
@@ -372,23 +417,17 @@ function deleteProduct_(body) {
     return { ok: false, error: '품번이 일치하지 않습니다. (해당 행이 이미 변경되었을 수 있습니다. 새로고침 후 다시 시도해주세요)' };
   }
 
-  var imageUrl = String(internalSheet.getRange(row, 9).getValue() || '');
+  var imageUrl = String(internalSheet.getRange(row, 12).getValue() || '');
   internalSheet.deleteRow(row);
   deleteDriveFileByUrl_(imageUrl);
 
-  // 셀러용 시트: 같은 품번의 가장 마지막(최근) 행 삭제
+  // 셀러용 시트: 내부용과 같은 행 번호를 사용 (품번이 옵션끼리 같을 수 있어 품번만으로 찾으면 엉뚱한 옵션이 지워질 수 있음)
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
   if (sellerSheet) {
-    var lastRow = sellerSheet.getLastRow();
-    if (lastRow >= 2) {
-      var codes = sellerSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = codes.length - 1; i >= 0; i--) {
-        if (String(codes[i][0]).trim() === productCode) {
-          sellerSheet.deleteRow(i + 2);
-          break;
-        }
-      }
+    var sellerRowCode = String(sellerSheet.getRange(row, 1).getValue()).trim();
+    if (sellerRowCode === productCode) {
+      sellerSheet.deleteRow(row);
     }
   }
 

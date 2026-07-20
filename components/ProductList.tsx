@@ -8,6 +8,8 @@ interface ProductItem {
   row: number;
   code: string;
   name: string;
+  option1: string;
+  option2: string;
   internalCode: string;
   vendor: string;
   cost: number;
@@ -15,6 +17,34 @@ interface ProductItem {
   stock: number;
   imageUrl: string;
   description: string;
+}
+
+interface EditDraft {
+  code: string;
+  name: string;
+  option1: string;
+  option2: string;
+  description: string;
+  internalCode: string;
+  vendor: string;
+  cost: string;
+  price: string;
+  stock: string;
+}
+
+function toDraft(item: ProductItem): EditDraft {
+  return {
+    code: item.code,
+    name: item.name,
+    option1: item.option1 || '',
+    option2: item.option2 || '',
+    description: item.description || '',
+    internalCode: item.internalCode || '',
+    vendor: item.vendor || '',
+    cost: String(item.cost || ''),
+    price: String(item.price || ''),
+    stock: String(item.stock || '')
+  };
 }
 
 export default function ProductList() {
@@ -25,6 +55,9 @@ export default function ProductList() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [deletingRow, setDeletingRow] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProductItem | null>(null);
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     loadList();
@@ -98,6 +131,75 @@ export default function ProductList() {
     }
   }
 
+  function startEdit(item: ProductItem) {
+    setEditingRow(item.row);
+    setEditDraft(toDraft(item));
+  }
+
+  function cancelEdit() {
+    setEditingRow(null);
+    setEditDraft(null);
+  }
+
+  async function saveEdit(item: ProductItem) {
+    if (!editDraft || savingEdit) return;
+    if (!editDraft.code.trim() || !editDraft.name.trim()) {
+      setError('품번과 상품명은 필수입니다.');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/update-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          row: item.row,
+          originalCode: item.code,
+          productCode: editDraft.code.trim(),
+          productName: editDraft.name.trim(),
+          productOption1: editDraft.option1.trim(),
+          productOption2: editDraft.option2.trim(),
+          productDescription: editDraft.description.trim(),
+          internalCode: editDraft.internalCode.trim(),
+          vendor: editDraft.vendor.trim(),
+          cost: Number(editDraft.cost) || 0,
+          price: Number(editDraft.price) || 0,
+          stock: Number(editDraft.stock) || 0
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setItems((prev) =>
+          prev.map((it) =>
+            it.row === item.row
+              ? {
+                  ...it,
+                  code: editDraft.code.trim(),
+                  name: editDraft.name.trim(),
+                  option1: editDraft.option1.trim(),
+                  option2: editDraft.option2.trim(),
+                  description: editDraft.description.trim(),
+                  internalCode: editDraft.internalCode.trim(),
+                  vendor: editDraft.vendor.trim(),
+                  cost: Number(editDraft.cost) || 0,
+                  price: Number(editDraft.price) || 0,
+                  stock: Number(editDraft.stock) || 0
+                }
+              : it
+          )
+        );
+        setEditingRow(null);
+        setEditDraft(null);
+      } else {
+        setError(`수정 실패: ${data.error || '알 수 없는 오류'}`);
+      }
+    } catch (err) {
+      setError(`수정 중 오류: ${String(err)}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   if (loading) return <p className="px-4 py-6 text-sm text-gray-500">불러오는 중...</p>;
   if (error) return <p className="px-4 py-6 text-sm text-red-600">{error}</p>;
 
@@ -129,61 +231,186 @@ export default function ProductList() {
       ) : (
         <ul className="divide-y divide-gray-100">
           {visibleItems.map((item) => (
-            <li key={item.row} className="flex items-center gap-3 px-4 py-3">
-              {item.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={item.imageUrl}
-                  alt={item.name}
-                  className="h-16 w-16 shrink-0 rounded-lg object-cover"
-                />
+            <li key={item.row} className="px-4 py-3">
+              {editingRow === item.row && editDraft ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <EditField label="품번">
+                      <input
+                        value={editDraft.code}
+                        onChange={(e) => setEditDraft({ ...editDraft, code: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                    <EditField label="상품명">
+                      <input
+                        value={editDraft.name}
+                        onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <EditField label="옵션1">
+                      <input
+                        value={editDraft.option1}
+                        onChange={(e) => setEditDraft({ ...editDraft, option1: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                    <EditField label="옵션2">
+                      <input
+                        value={editDraft.option2}
+                        onChange={(e) => setEditDraft({ ...editDraft, option2: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                  </div>
+                  <EditField label="상품설명">
+                    <textarea
+                      value={editDraft.description}
+                      onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
+                      className="input min-h-16 resize-y"
+                    />
+                  </EditField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <EditField label="식별코드">
+                      <input
+                        value={editDraft.internalCode}
+                        onChange={(e) => setEditDraft({ ...editDraft, internalCode: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                    <EditField label="거래처">
+                      <input
+                        value={editDraft.vendor}
+                        onChange={(e) => setEditDraft({ ...editDraft, vendor: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <EditField label="원가">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={editDraft.cost}
+                        onChange={(e) => setEditDraft({ ...editDraft, cost: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                    <EditField label="판매가">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={editDraft.price}
+                        onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                    <EditField label="재고">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={editDraft.stock}
+                        onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })}
+                        className="input"
+                      />
+                    </EditField>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => saveEdit(item)}
+                      disabled={savingEdit}
+                      className="flex-1 rounded-lg bg-gray-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {savingEdit ? '저장 중...' : '저장'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      disabled={savingEdit}
+                      className="flex-1 rounded-lg border border-gray-300 py-2 text-sm text-gray-600"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <label className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[11px] text-gray-500 active:bg-gray-50">
-                  {uploadingRow === item.row ? (
-                    '업로드중'
+                <div className="flex items-center gap-3">
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                    />
                   ) : (
-                    <>
-                      <span className="text-lg leading-none">📷</span>
-                      사진추가
-                    </>
+                    <label className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[11px] text-gray-500 active:bg-gray-50">
+                      {uploadingRow === item.row ? (
+                        '업로드중'
+                      ) : (
+                        <>
+                          <span className="text-lg leading-none">📷</span>
+                          사진추가
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        disabled={uploadingRow !== null}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleAddImage(item, file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
                   )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    disabled={uploadingRow !== null}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleAddImage(item, file);
-                      e.target.value = '';
-                    }}
-                  />
-                </label>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {item.name}
+                      {(item.option1 || item.option2) && (
+                        <span className="ml-1 text-xs font-normal text-gray-500">
+                          ({[item.option1, item.option2].filter(Boolean).join(' / ')})
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {item.code}
+                      {item.vendor ? ` · ${item.vendor}` : ''}
+                      {item.internalCode ? ` · ${item.internalCode}` : ''}
+                    </p>
+                    <p className="text-xs text-gray-700">
+                      원가 {formatWon(item.cost)} → 판매가 {formatWon(item.price)}
+                    </p>
+                    <p className="text-xs text-gray-500">재고 {item.stock || 0}개</p>
+                    {item.description && (
+                      <p className="mt-0.5 truncate text-xs text-gray-500">{item.description}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(item)}
+                      className="rounded-lg px-2 py-1.5 text-xs text-gray-600 active:bg-gray-100"
+                    >
+                      수정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(item)}
+                      disabled={deletingRow !== null}
+                      className="rounded-lg px-2 py-1.5 text-xs text-red-600 active:bg-red-50 disabled:opacity-50"
+                    >
+                      {deletingRow === item.row ? '삭제중' : '삭제'}
+                    </button>
+                  </div>
+                </div>
               )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-900">{item.name}</p>
-                <p className="text-xs text-gray-500">
-                  {item.code}
-                  {item.vendor ? ` · ${item.vendor}` : ''}
-                  {item.internalCode ? ` · ${item.internalCode}` : ''}
-                </p>
-                <p className="text-xs text-gray-700">
-                  원가 {formatWon(item.cost)} → 판매가 {formatWon(item.price)}
-                </p>
-                <p className="text-xs text-gray-500">재고 {item.stock || 0}개</p>
-                {item.description && (
-                  <p className="mt-0.5 truncate text-xs text-gray-500">{item.description}</p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setPendingDelete(item)}
-                disabled={deletingRow !== null}
-                className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-red-600 active:bg-red-50 disabled:opacity-50"
-              >
-                {deletingRow === item.row ? '삭제중' : '삭제'}
-              </button>
             </li>
           ))}
         </ul>
@@ -199,6 +426,15 @@ export default function ProductList() {
         />
       )}
     </div>
+  );
+}
+
+function EditField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-gray-500">{label}</span>
+      {children}
+    </label>
   );
 }
 

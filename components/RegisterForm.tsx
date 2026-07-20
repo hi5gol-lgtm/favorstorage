@@ -29,6 +29,8 @@ function loadDraft(): Record<string, string> | null {
 export default function RegisterForm() {
   const [productCode, setProductCode] = useState('');
   const [productName, setProductName] = useState('');
+  const [productOption1, setProductOption1] = useState('');
+  const [productOption2, setProductOption2] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [internalCode, setInternalCode] = useState('');
 
@@ -43,6 +45,11 @@ export default function RegisterForm() {
   const [imagePreview, setImagePreview] = useState('');
   const [imageBase64, setImageBase64] = useState('');
   const [imageMimeType, setImageMimeType] = useState('');
+
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([]);
+  const [curationTips, setCurationTips] = useState<string[]>([]);
+  const [suggestingName, setSuggestingName] = useState(false);
+  const [suggestError, setSuggestError] = useState('');
 
   const [duplicateHint, setDuplicateHint] = useState<{ name: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,6 +76,8 @@ export default function RegisterForm() {
     if (draft) {
       setProductCode(draft.productCode ?? '');
       setProductName(draft.productName ?? '');
+      setProductOption1(draft.productOption1 ?? '');
+      setProductOption2(draft.productOption2 ?? '');
       setProductDescription(draft.productDescription ?? '');
       setInternalCode(draft.internalCode ?? '');
       setVendorSelect(draft.vendorSelect ?? '');
@@ -93,6 +102,8 @@ export default function RegisterForm() {
         JSON.stringify({
           productCode,
           productName,
+          productOption1,
+          productOption2,
           productDescription,
           internalCode,
           vendorSelect,
@@ -111,6 +122,8 @@ export default function RegisterForm() {
   }, [
     productCode,
     productName,
+    productOption1,
+    productOption2,
     productDescription,
     internalCode,
     vendorSelect,
@@ -168,8 +181,35 @@ export default function RegisterForm() {
       setImageBase64(compressed.base64);
       setImageMimeType(compressed.mimeType);
       setImagePreview(compressed.previewUrl);
+      setNameSuggestions([]);
+      setCurationTips([]);
+      setSuggestError('');
+      requestNameSuggestions(compressed.base64, compressed.mimeType);
     } catch {
       setToast('이미지 처리에 실패했습니다. 다시 시도해주세요.');
+    }
+  }
+
+  async function requestNameSuggestions(base64: string, mimeType: string) {
+    setSuggestingName(true);
+    setSuggestError('');
+    try {
+      const res = await fetch('/api/suggest-name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, imageMimeType: mimeType })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setNameSuggestions(data.suggestions || []);
+        setCurationTips(data.curationTips || []);
+      } else {
+        setSuggestError('상품명 제안을 받지 못했습니다.');
+      }
+    } catch {
+      setSuggestError('상품명 제안 중 오류가 발생했습니다.');
+    } finally {
+      setSuggestingName(false);
     }
   }
 
@@ -187,6 +227,8 @@ export default function RegisterForm() {
   function resetForm() {
     setProductCode('');
     setProductName('');
+    setProductOption1('');
+    setProductOption2('');
     setProductDescription('');
     setInternalCode('');
     setVendorSelect('');
@@ -197,6 +239,9 @@ export default function RegisterForm() {
     setImagePreview('');
     setImageBase64('');
     setImageMimeType('');
+    setNameSuggestions([]);
+    setCurationTips([]);
+    setSuggestError('');
     setDuplicateHint(null);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
@@ -220,7 +265,7 @@ export default function RegisterForm() {
       const dup = await checkDuplicateNow(productCode);
       if (dup.exists) {
         const proceed = await askConfirm(
-          `이미 등록된 품번입니다. 상품명: ${dup.name}\n그래도 저장하시겠습니까?`
+          `이미 등록된 품번입니다. 상품명: ${dup.name}\n같은 상품에 다른 옵션을 추가하는 경우라면 계속 진행하세요.\n그래도 저장하시겠습니까?`
         );
         if (!proceed) {
           setSaving(false);
@@ -242,6 +287,8 @@ export default function RegisterForm() {
         body: JSON.stringify({
           productCode: productCode.trim(),
           productName: productName.trim(),
+          productOption1: productOption1.trim(),
+          productOption2: productOption2.trim(),
           productDescription: productDescription.trim(),
           internalCode: internalCode.trim(),
           vendor: vendorValue,
@@ -291,12 +338,65 @@ export default function RegisterForm() {
               scheduleDuplicateCheck(e.target.value);
             }}
             className="input"
-            placeholder="예: FJ-1001"
+            placeholder="예: 2026"
           />
           {duplicateHint && (
             <p className="mt-1 text-xs text-amber-600">
-              ⚠ 이미 등록된 품번입니다. 상품명: {duplicateHint.name}
+              ⚠ 이미 등록된 품번입니다. 상품명: {duplicateHint.name} (같은 상품의 다른 옵션이라면
+              품번을 그대로 두고 옵션만 다르게 입력하세요)
             </p>
+          )}
+        </Field>
+
+        <Field label="사진">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageChange}
+            className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
+          />
+          {imagePreview && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imagePreview}
+              alt="미리보기"
+              className="mt-3 h-40 w-40 rounded-lg object-cover"
+            />
+          )}
+
+          {suggestingName && (
+            <p className="mt-2 text-xs text-gray-500">AI가 상품명을 분석하고 있습니다...</p>
+          )}
+          {suggestError && <p className="mt-2 text-xs text-red-600">{suggestError}</p>}
+
+          {nameSuggestions.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-xs font-medium text-gray-500">AI 상품명 제안 (탭하면 적용)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {nameSuggestions.map((name, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setProductName(name)}
+                    className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 active:bg-gray-100"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {curationTips.length > 0 && (
+            <div className="mt-3 rounded-lg bg-amber-50 p-3">
+              <p className="mb-1.5 text-xs font-medium text-amber-700">큐레이션 팁</p>
+              <ul className="space-y-1 text-xs text-amber-800">
+                {curationTips.map((tip, i) => (
+                  <li key={i}>· {tip}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </Field>
 
@@ -309,6 +409,27 @@ export default function RegisterForm() {
             placeholder="예: 큐빅 진주 반지"
           />
         </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="옵션1">
+            <input
+              type="text"
+              value={productOption1}
+              onChange={(e) => setProductOption1(e.target.value)}
+              className="input"
+              placeholder="예: 실버"
+            />
+          </Field>
+          <Field label="옵션2">
+            <input
+              type="text"
+              value={productOption2}
+              onChange={(e) => setProductOption2(e.target.value)}
+              className="input"
+              placeholder="예: S"
+            />
+          </Field>
+        </div>
 
         <Field label="상품설명">
           <textarea
@@ -399,24 +520,6 @@ export default function RegisterForm() {
             className="input"
             placeholder="0"
           />
-        </Field>
-
-        <Field label="사진">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleImageChange}
-            className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-          />
-          {imagePreview && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imagePreview}
-              alt="미리보기"
-              className="mt-3 h-40 w-40 rounded-lg object-cover"
-            />
-          )}
         </Field>
       </div>
 

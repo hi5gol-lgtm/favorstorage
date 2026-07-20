@@ -45,6 +45,7 @@ function doGet(e) {
     if (action === 'vendors') return jsonOut_({ ok: true, vendors: getVendors_() });
     if (action === 'checkDuplicate') return jsonOut_(checkDuplicate_(e.parameter.code));
     if (action === 'list') return jsonOut_({ ok: true, items: listProducts_(Number(e.parameter.limit) || 100) });
+    if (action === 'fixImageUrls') return jsonOut_(fixImageUrlFormat_());
 
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -154,6 +155,29 @@ function cleanupBlankInternalRows_() {
     }
   }
   Logger.log('빈 행 ' + deleted + '개 삭제 완료');
+}
+
+// L열(이미지URL)의 기존 uc?id= 형식을 thumbnail 형식으로 일괄 변환 (앱 화면 미리보기 깨짐 수정).
+// 이미 변환된 행은 건드리지 않으므로 여러 번 실행해도 안전함.
+function fixImageUrlFormat_() {
+  var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
+  if (!sheet) return { ok: false, error: '내부용 시트를 찾을 수 없습니다.' };
+  var lastRow = getLastDataRow_(sheet);
+  if (lastRow < 2) return { ok: true, fixed: 0 };
+  var range = sheet.getRange(2, 12, lastRow - 1, 1);
+  var values = range.getValues();
+  var fixed = 0;
+  for (var i = 0; i < values.length; i++) {
+    var url = String(values[i][0] || '');
+    if (url.indexOf('drive.google.com/uc?id=') === -1) continue;
+    var match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (!match) continue;
+    values[i][0] = 'https://drive.google.com/thumbnail?id=' + match[1] + '&sz=w1000';
+    fixed++;
+  }
+  if (fixed > 0) range.setValues(values);
+  return { ok: true, fixed: fixed };
 }
 
 // ===== VENDORS =====
@@ -481,7 +505,9 @@ function saveImageToDrive_(base64, mimeType, productCode) {
   var blob = Utilities.newBlob(bytes, mimeType, fileName);
   var file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  var url = 'https://drive.google.com/uc?id=' + file.getId();
+  // uc?id= 형식은 <img> 태그로 직접 임베드할 때 브라우저에서 차단되어 미리보기가 깨짐 (스프레드시트 셀
+  // 이미지는 서버 쪽에서 가져오므로 영향 없음). thumbnail 엔드포인트를 써야 앱 화면에서 정상 표시됨.
+  var url = 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1000';
   return { id: file.getId(), url: url };
 }
 

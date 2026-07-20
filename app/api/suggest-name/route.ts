@@ -14,9 +14,7 @@ const SCHEMA = {
     curationTips: {
       type: 'array',
       items: { type: 'string' },
-      minItems: 1,
-      maxItems: 2,
-      description: '셀러가 참고할 스타일링/트렌드/타겟 관련 큐레이션 팁 (1~2개, 짧고 핵심만)'
+      description: '셀러가 참고할 스타일링/트렌드/타겟 관련 큐레이션 팁 (반드시 1~2개만, 짧고 핵심만)'
     }
   },
   required: ['suggestions', 'curationTips'],
@@ -71,7 +69,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       suggestions: parsed.suggestions || [],
-      curationTips: parsed.curationTips || []
+      curationTips: (parsed.curationTips || []).slice(0, 2)
     });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });

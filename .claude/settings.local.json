@@ -101,7 +101,16 @@
       "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d '{\"row\":100,\"productCode\":\"TIPTEST-9999\"}')",
       "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/save -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_test_payload.json)",
       "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=1 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_test_result2.json)",
-      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_delete_payload.json)"
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_delete_payload.json)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/suggest-name -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/test_payload2.json --max-time 60 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/suggest_retest.json -w 'HTTP %{http_code}\\\\n')",
+      "Bash(Get-Content)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/suggest-name -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/test_payload2.json --max-time 60 -w '\\\\nHTTP %{http_code}\\\\n')",
+      "Bash(cp C:/Users/JY/Documents/페이버주얼리/claude/apps-script/Code.gs C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/Code_check3.js)",
+      "Bash(node -c C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/Code_check3.js)",
+      "Bash(curl -s \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=fixImageUrls&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\")",
+      "Bash(curl -sL \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=fixImageUrls&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\")",
+      "Bash(curl -sL \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=list&limit=3&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\" -o \"C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/apps_script_direct_check.json\")",
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=300 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/final_image_check.json)"
     ]
   }
 }

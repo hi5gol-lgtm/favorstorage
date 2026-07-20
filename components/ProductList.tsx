@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { compressImage } from '@/lib/imageCompress';
+import { VENDOR_CUSTOM_OPTION } from '@/lib/constants';
 import ConfirmModal from './ConfirmModal';
 
 interface ProductItem {
@@ -26,13 +27,16 @@ interface EditDraft {
   option2: string;
   description: string;
   internalCode: string;
-  vendor: string;
+  vendorSelect: string;
+  customVendor: string;
   cost: string;
   price: string;
   stock: string;
 }
 
-function toDraft(item: ProductItem): EditDraft {
+function toDraft(item: ProductItem, vendors: string[]): EditDraft {
+  const vendor = item.vendor || '';
+  const known = vendor && vendors.includes(vendor);
   return {
     code: item.code,
     name: item.name,
@@ -40,7 +44,8 @@ function toDraft(item: ProductItem): EditDraft {
     option2: item.option2 || '',
     description: item.description || '',
     internalCode: item.internalCode || '',
-    vendor: item.vendor || '',
+    vendorSelect: known ? vendor : vendor ? VENDOR_CUSTOM_OPTION : '',
+    customVendor: known ? '' : vendor,
     cost: String(item.cost || ''),
     price: String(item.price || ''),
     stock: String(item.stock || '')
@@ -58,9 +63,16 @@ export default function ProductList() {
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [vendors, setVendors] = useState<string[]>([]);
 
   useEffect(() => {
     loadList();
+    fetch('/api/vendors')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) setVendors(data.vendors as string[]);
+      })
+      .catch(() => {});
   }, []);
 
   function loadList() {
@@ -133,7 +145,7 @@ export default function ProductList() {
 
   function startEdit(item: ProductItem) {
     setEditingRow(item.row);
-    setEditDraft(toDraft(item));
+    setEditDraft(toDraft(item, vendors));
   }
 
   function cancelEdit() {
@@ -147,6 +159,8 @@ export default function ProductList() {
       setError('품번과 상품명은 필수입니다.');
       return;
     }
+    const vendorValue =
+      editDraft.vendorSelect === VENDOR_CUSTOM_OPTION ? editDraft.customVendor.trim() : editDraft.vendorSelect;
     setSavingEdit(true);
     try {
       const res = await fetch('/api/update-product', {
@@ -161,7 +175,7 @@ export default function ProductList() {
           productOption2: editDraft.option2.trim(),
           productDescription: editDraft.description.trim(),
           internalCode: editDraft.internalCode.trim(),
-          vendor: editDraft.vendor.trim(),
+          vendor: vendorValue,
           cost: Number(editDraft.cost) || 0,
           price: Number(editDraft.price) || 0,
           stock: Number(editDraft.stock) || 0
@@ -169,6 +183,9 @@ export default function ProductList() {
       });
       const data = await res.json();
       if (data.ok) {
+        if (vendorValue && !vendors.includes(vendorValue)) {
+          setVendors((prev) => [...prev, vendorValue]);
+        }
         setItems((prev) =>
           prev.map((it) =>
             it.row === item.row
@@ -180,7 +197,7 @@ export default function ProductList() {
                   option2: editDraft.option2.trim(),
                   description: editDraft.description.trim(),
                   internalCode: editDraft.internalCode.trim(),
-                  vendor: editDraft.vendor.trim(),
+                  vendor: vendorValue,
                   cost: Number(editDraft.cost) || 0,
                   price: Number(editDraft.price) || 0,
                   stock: Number(editDraft.stock) || 0
@@ -282,11 +299,28 @@ export default function ProductList() {
                       />
                     </EditField>
                     <EditField label="거래처">
-                      <input
-                        value={editDraft.vendor}
-                        onChange={(e) => setEditDraft({ ...editDraft, vendor: e.target.value })}
+                      <select
+                        value={editDraft.vendorSelect}
+                        onChange={(e) => setEditDraft({ ...editDraft, vendorSelect: e.target.value })}
                         className="input"
-                      />
+                      >
+                        <option value="">선택하세요</option>
+                        {vendors.map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                        <option value={VENDOR_CUSTOM_OPTION}>+ 직접입력</option>
+                      </select>
+                      {editDraft.vendorSelect === VENDOR_CUSTOM_OPTION && (
+                        <input
+                          type="text"
+                          value={editDraft.customVendor}
+                          onChange={(e) => setEditDraft({ ...editDraft, customVendor: e.target.value })}
+                          className="input mt-2"
+                          placeholder="새 거래처명 입력"
+                        />
+                      )}
                     </EditField>
                   </div>
                   <div className="grid grid-cols-3 gap-2">

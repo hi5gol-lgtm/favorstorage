@@ -28,10 +28,12 @@ var CONFIG = {
 };
 
 // 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 식별코드(7) 거래처(8)
-//                  원가(9) 판매가(10) 재고(11) 이미지URL(12) 등록일시(13) [배수(14) 자동계산]
+//                  원가(9) 판매가(10) 재고(11) 이미지URL(12) 등록일시(13) [배수(14) 자동계산] 큐레이션팁(15)
 var INTERNAL_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '식별코드', '거래처', '원가', '판매가', '재고', '이미지URL', '등록일시'];
-// 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 판매가(7) 재고(8)
+var INTERNAL_CURATION_TIP_COL = 15;
+// 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 판매가(7) 재고(8) 큐레이션팁(9)
 var SELLER_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '판매가', '재고'];
+var SELLER_CURATION_TIP_COL = 9;
 
 // ===== ENTRY POINTS =====
 
@@ -74,6 +76,7 @@ function setup() {
   var productSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(productSheet, INTERNAL_HEADERS);
   ensureMultiplierColumn_(productSheet);
+  ensureColumnHeader_(productSheet, INTERNAL_CURATION_TIP_COL, '큐레이션팁');
   cleanupBlankInternalRows_();
 
   var vendorSheet = internalSs.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || internalSs.insertSheet(CONFIG.VENDOR_SHEET_NAME);
@@ -82,6 +85,7 @@ function setup() {
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
+  ensureColumnHeader_(sellerSheet, SELLER_CURATION_TIP_COL, '큐레이션팁');
 
   Logger.log('setup 완료');
 }
@@ -92,6 +96,14 @@ function ensureHeader_(sheet, headers) {
   if (!hasHeader) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
+  }
+}
+
+// 기존 헤더 행 끝에 컬럼을 하나 덧붙일 때 사용 (기존 컬럼 위치/수식은 건드리지 않음).
+function ensureColumnHeader_(sheet, col, headerText) {
+  var header = sheet.getRange(1, col).getValue();
+  if (String(header).trim() === '') {
+    sheet.getRange(1, col).setValue(headerText);
   }
 }
 
@@ -203,8 +215,8 @@ function listProducts_(limit) {
   var startRow = Math.max(2, lastRow - limit + 1);
   var numRows = lastRow - startRow + 1;
   // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 상품설명, G 식별코드, H 거래처,
-  // I 원가, J 판매가, K 재고, L 이미지URL, M 등록일시, N 배수
-  var values = sheet.getRange(startRow, 1, numRows, 14).getValues();
+  // I 원가, J 판매가, K 재고, L 이미지URL, M 등록일시, N 배수, O 큐레이션팁
+  var values = sheet.getRange(startRow, 1, numRows, INTERNAL_CURATION_TIP_COL).getValues();
   var items = [];
   for (var i = values.length - 1; i >= 0; i--) {
     var row = values[i];
@@ -220,7 +232,8 @@ function listProducts_(limit) {
       cost: row[8],
       price: row[9],
       stock: row[10],
-      imageUrl: row[11] || ''
+      imageUrl: row[11] || '',
+      curationTip: row[INTERNAL_CURATION_TIP_COL - 1] || ''
     });
   }
   return items;
@@ -239,6 +252,7 @@ function saveProduct_(body) {
   var price = Number(body.price) || 0;
   var stock = Number(body.stock) || 0;
   var productDescription = String(body.productDescription || '').trim();
+  var curationTip = String(body.curationTip || '').trim();
 
   if (!productCode || !productName) {
     return { ok: false, error: '품번/상품명은 필수입니다.' };
@@ -261,6 +275,7 @@ function saveProduct_(body) {
   var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(internalSheet, INTERNAL_HEADERS);
   ensureMultiplierColumn_(internalSheet);
+  ensureColumnHeader_(internalSheet, INTERNAL_CURATION_TIP_COL, '큐레이션팁');
   var newRow = getLastDataRow_(internalSheet) + 1;
 
   internalSheet.getRange(newRow, 1).setValue(productCode);
@@ -275,6 +290,7 @@ function saveProduct_(body) {
   internalSheet.getRange(newRow, 11).setValue(stock);
   internalSheet.getRange(newRow, 12).setValue(imageUrl);
   internalSheet.getRange(newRow, 13).setValue(now);
+  internalSheet.getRange(newRow, INTERNAL_CURATION_TIP_COL).setValue(curationTip);
   if (imageUrl) setCellImage_(internalSheet, newRow, 2, imageUrl);
   internalSheet.setRowHeight(newRow, CONFIG.IMAGE_ROW_HEIGHT);
   internalSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
@@ -283,6 +299,7 @@ function saveProduct_(body) {
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
+  ensureColumnHeader_(sellerSheet, SELLER_CURATION_TIP_COL, '큐레이션팁');
   var sellerRow = newRow;
 
   sellerSheet.getRange(sellerRow, 1).setValue(productCode);
@@ -292,6 +309,7 @@ function saveProduct_(body) {
   sellerSheet.getRange(sellerRow, 6).setValue(productDescription);
   sellerSheet.getRange(sellerRow, 7).setValue(price);
   sellerSheet.getRange(sellerRow, 8).setValue(stock);
+  sellerSheet.getRange(sellerRow, SELLER_CURATION_TIP_COL).setValue(curationTip);
   if (imageUrl) setCellImage_(sellerSheet, sellerRow, 2, imageUrl);
   sellerSheet.setRowHeight(sellerRow, CONFIG.IMAGE_ROW_HEIGHT);
   sellerSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);

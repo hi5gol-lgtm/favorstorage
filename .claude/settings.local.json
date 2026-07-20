@@ -90,7 +90,18 @@
       "Bash(curl -s -o /dev/null -w \"홈페이지: %{http_code}\\\\n\" \"https://favorjewelry-product.vercel.app/\")",
       "Bash(curl -s https://favorjewelry-product.vercel.app/ -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/prod_final.html)",
       "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/suggest-name -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/test_payload2.json --max-time 60 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/prod_suggest_result.json)",
-      "Bash(curl -s \"https://favorjewelry-product.vercel.app/api/list?limit=1\" -o \"C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/list_test.json\")"
+      "Bash(curl -s \"https://favorjewelry-product.vercel.app/api/list?limit=1\" -o \"C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/list_test.json\")",
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=300 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/full_list_check.json)",
+      "Bash(curl -s \"https://favorjewelry-product.vercel.app/api/check-duplicate?code=2035\")",
+      "Bash(curl -s \"https://favorjewelry-product.vercel.app/api/check-duplicate?code=1035\")",
+      "Bash(cp C:/Users/JY/Documents/페이버주얼리/claude/apps-script/Code.gs C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/Code_check2.js)",
+      "Bash(node -c C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/Code_check2.js)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/save -H 'Content-Type: application/json' -d '{\"productCode\":\"TIPTEST-9999\",\"productName\":\"큐레이션팁 저장 테스트\",\"productDescription\":\"테스트용\",\"curationTip\":\"하객룩에 잘 어울리는 포인트 주얼리\",\"internalCode\":\"\",\"vendor\":\"\",\"cost\":1000,\"price\":3500,\"stock\":1}')",
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=1 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_test_result.json)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d '{\"row\":100,\"productCode\":\"TIPTEST-9999\"}')",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/save -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_test_payload.json)",
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=1 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_test_result2.json)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d @C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/tip_delete_payload.json)"
     ]
   }
 }

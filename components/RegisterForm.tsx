@@ -57,6 +57,7 @@ export default function RegisterForm() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
   const duplicateCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestDuplicateCode = useRef('');
   const isFirstSave = useRef(true);
 
   useEffect(() => {
@@ -148,6 +149,7 @@ export default function RegisterForm() {
   }
 
   function scheduleDuplicateCheck(code: string) {
+    latestDuplicateCode.current = code;
     if (duplicateCheckTimer.current) clearTimeout(duplicateCheckTimer.current);
     setDuplicateHint(null);
     if (!code.trim()) return;
@@ -155,6 +157,8 @@ export default function RegisterForm() {
       try {
         const res = await fetch(`/api/check-duplicate?code=${encodeURIComponent(code.trim())}`);
         const data = await res.json();
+        // 응답이 도착한 시점에 입력값이 이미 바뀌었다면(늦게 도착한 이전 요청) 무시한다
+        if (code !== latestDuplicateCode.current) return;
         if (data.ok && data.exists) setDuplicateHint({ name: data.name });
       } catch {
         // ignore
@@ -290,6 +294,7 @@ export default function RegisterForm() {
           productOption1: productOption1.trim(),
           productOption2: productOption2.trim(),
           productDescription: productDescription.trim(),
+          curationTip: curationTips.join('\n'),
           internalCode: internalCode.trim(),
           vendor: vendorValue,
           cost: costNum,

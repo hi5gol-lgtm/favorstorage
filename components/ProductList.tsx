@@ -11,8 +11,8 @@ interface ProductItem {
   name: string;
   option1: string;
   option2: string;
-  internalCode: string;
   vendor: string;
+  productionCost: number;
   cost: number;
   price: number;
   stock: number;
@@ -26,12 +26,19 @@ interface EditDraft {
   option1: string;
   option2: string;
   description: string;
-  internalCode: string;
   vendorSelect: string;
   customVendor: string;
+  productionCost: string;
   cost: string;
   price: string;
   stock: string;
+}
+
+// 제작가는 자사(페이버) 제품에만 의미가 있음 — 외부 거래처 상품은 우리가 만드는 게 아니라서 해당 없음.
+function isFavorVendor(draft: EditDraft): boolean {
+  const vendorValue =
+    draft.vendorSelect === VENDOR_CUSTOM_OPTION ? draft.customVendor.trim() : draft.vendorSelect;
+  return !vendorValue || vendorValue === '페이버';
 }
 
 function toDraft(item: ProductItem, vendors: string[]): EditDraft {
@@ -43,9 +50,9 @@ function toDraft(item: ProductItem, vendors: string[]): EditDraft {
     option1: item.option1 || '',
     option2: item.option2 || '',
     description: item.description || '',
-    internalCode: item.internalCode || '',
     vendorSelect: known ? vendor : vendor ? VENDOR_CUSTOM_OPTION : '',
     customVendor: known ? '' : vendor,
+    productionCost: String(item.productionCost || ''),
     cost: String(item.cost || ''),
     price: String(item.price || ''),
     stock: String(item.stock || '')
@@ -64,6 +71,7 @@ export default function ProductList() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [vendors, setVendors] = useState<string[]>([]);
+  const [sorting, setSorting] = useState(false);
 
   useEffect(() => {
     loadList();
@@ -74,6 +82,24 @@ export default function ProductList() {
       })
       .catch(() => {});
   }, []);
+
+  async function handleSort() {
+    if (sorting) return;
+    setSorting(true);
+    try {
+      const res = await fetch('/api/sort-products', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        loadList();
+      } else {
+        setError(`정렬 실패: ${data.error || '알 수 없는 오류'}`);
+      }
+    } catch (err) {
+      setError(`정렬 중 오류: ${String(err)}`);
+    } finally {
+      setSorting(false);
+    }
+  }
 
   function loadList() {
     setLoading(true);
@@ -174,8 +200,8 @@ export default function ProductList() {
           productOption1: editDraft.option1.trim(),
           productOption2: editDraft.option2.trim(),
           productDescription: editDraft.description.trim(),
-          internalCode: editDraft.internalCode.trim(),
           vendor: vendorValue,
+          productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
           cost: Number(editDraft.cost) || 0,
           price: Number(editDraft.price) || 0,
           stock: Number(editDraft.stock) || 0
@@ -196,8 +222,8 @@ export default function ProductList() {
                   option1: editDraft.option1.trim(),
                   option2: editDraft.option2.trim(),
                   description: editDraft.description.trim(),
-                  internalCode: editDraft.internalCode.trim(),
                   vendor: vendorValue,
+                  productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
                   cost: Number(editDraft.cost) || 0,
                   price: Number(editDraft.price) || 0,
                   stock: Number(editDraft.stock) || 0
@@ -241,6 +267,14 @@ export default function ProductList() {
         >
           사진 대기 {items.filter((it) => !it.imageUrl).length}
         </button>
+        <button
+          type="button"
+          onClick={handleSort}
+          disabled={sorting}
+          className="ml-auto rounded-full bg-gray-100 px-3 py-1 text-gray-600 disabled:opacity-50"
+        >
+          {sorting ? '정렬 중...' : '품번순 정렬'}
+        </button>
       </div>
 
       {visibleItems.length === 0 ? (
@@ -283,47 +317,42 @@ export default function ProductList() {
                       />
                     </EditField>
                   </div>
-                  <EditField label="상품설명">
-                    <textarea
-                      value={editDraft.description}
-                      onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
-                      className="input min-h-16 resize-y"
-                    />
+                  <EditField label="거래처">
+                    <select
+                      value={editDraft.vendorSelect}
+                      onChange={(e) => setEditDraft({ ...editDraft, vendorSelect: e.target.value })}
+                      className="input"
+                    >
+                      <option value="">선택하세요</option>
+                      {vendors.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                      <option value={VENDOR_CUSTOM_OPTION}>+ 직접입력</option>
+                    </select>
+                    {editDraft.vendorSelect === VENDOR_CUSTOM_OPTION && (
+                      <input
+                        type="text"
+                        value={editDraft.customVendor}
+                        onChange={(e) => setEditDraft({ ...editDraft, customVendor: e.target.value })}
+                        className="input mt-2"
+                        placeholder="새 거래처명 입력"
+                      />
+                    )}
                   </EditField>
                   <div className="grid grid-cols-2 gap-2">
-                    <EditField label="식별코드">
-                      <input
-                        value={editDraft.internalCode}
-                        onChange={(e) => setEditDraft({ ...editDraft, internalCode: e.target.value })}
-                        className="input"
-                      />
-                    </EditField>
-                    <EditField label="거래처">
-                      <select
-                        value={editDraft.vendorSelect}
-                        onChange={(e) => setEditDraft({ ...editDraft, vendorSelect: e.target.value })}
-                        className="input"
-                      >
-                        <option value="">선택하세요</option>
-                        {vendors.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                        <option value={VENDOR_CUSTOM_OPTION}>+ 직접입력</option>
-                      </select>
-                      {editDraft.vendorSelect === VENDOR_CUSTOM_OPTION && (
+                    {isFavorVendor(editDraft) && (
+                      <EditField label="제작가">
                         <input
-                          type="text"
-                          value={editDraft.customVendor}
-                          onChange={(e) => setEditDraft({ ...editDraft, customVendor: e.target.value })}
-                          className="input mt-2"
-                          placeholder="새 거래처명 입력"
+                          type="number"
+                          inputMode="numeric"
+                          value={editDraft.productionCost}
+                          onChange={(e) => setEditDraft({ ...editDraft, productionCost: e.target.value })}
+                          className="input"
                         />
-                      )}
-                    </EditField>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
+                      </EditField>
+                    )}
                     <EditField label="원가">
                       <input
                         type="number"
@@ -333,6 +362,8 @@ export default function ProductList() {
                         className="input"
                       />
                     </EditField>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <EditField label="판매가">
                       <input
                         type="number"
@@ -352,6 +383,13 @@ export default function ProductList() {
                       />
                     </EditField>
                   </div>
+                  <EditField label="상품설명">
+                    <textarea
+                      value={editDraft.description}
+                      onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
+                      className="input min-h-16 resize-y"
+                    />
+                  </EditField>
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"
@@ -416,7 +454,6 @@ export default function ProductList() {
                     <p className="text-xs text-gray-500">
                       {item.code}
                       {item.vendor ? ` · ${item.vendor}` : ''}
-                      {item.internalCode ? ` · ${item.internalCode}` : ''}
                     </p>
                     <p className="text-xs text-gray-700">
                       원가 {formatWon(item.cost)} → 판매가 {formatWon(item.price)}

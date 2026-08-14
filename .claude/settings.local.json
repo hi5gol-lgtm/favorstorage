@@ -110,7 +110,16 @@
       "Bash(curl -s \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=fixImageUrls&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\")",
       "Bash(curl -sL \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=fixImageUrls&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\")",
       "Bash(curl -sL \"https://script.google.com/macros/s/AKfycbyudWi1cpLYGjAUxU4mjkqpc8E3ME9h2OZ-QkjX2pY0r9_ketqN6Z9hdnnqsMD5p3_b/exec?action=list&limit=3&apiKey=sppJl4-i3YvSVryjmboR0xAD4z2SiLil\" -o \"C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/apps_script_direct_check.json\")",
-      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=300 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/final_image_check.json)"
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=300 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/final_image_check.json)",
+      "Bash(curl -s https://favorjewelry-product.vercel.app/api/list?limit=2 -o C:/Users/JY/AppData/Local/Temp/claude/C--Users-JY-Documents--------claude/8b609107-8ede-4f87-9b5a-99096e36e744/scratchpad/diag_list.json)",
+      "Bash(curl -s -X POST https://favorjewelry-product.vercel.app/api/delete-product -H 'Content-Type: application/json' -d '{\"row\":101,\"productCode\":\"DIAG-TEST-1\"}')",
+      "Bash(find /c/Users/JY/Documents -maxdepth 3 -iname \"*worship*\" 2>/dev/null)",
+      "Bash(ls -la \"/c/Users/JY/Documents/워십박스/\" 2>/dev/null *)",
+      "Bash(gh repo *)",
+      "Bash(grep -v \"^\\\\./\\\\.git\")",
+      "Bash(npm --version)",
+      "Bash(node check_drive_access.js)",
+      "Bash(ls \"/c/Users/JY/Documents\" 2>&1 | head -30; echo \"---\"; ls \"/c/Users/JY/Documents/TKL-dashboard\" 2>&1)"
     ]
   }
 }

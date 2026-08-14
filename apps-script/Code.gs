@@ -27,13 +27,23 @@ var CONFIG = {
   IMAGE_COL_WIDTH: 90
 };
 
-// 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 식별코드(7) 거래처(8)
-//                  원가(9) 판매가(10) 재고(11) 이미지URL(12) 등록일시(13) [배수(14) 자동계산] 큐레이션팁(15)
-var INTERNAL_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '식별코드', '거래처', '원가', '판매가', '재고', '이미지URL', '등록일시'];
-var INTERNAL_CURATION_TIP_COL = 15;
-// 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 상품설명(6) 판매가(7) 재고(8) 큐레이션팁(9)
-var SELLER_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '상품설명', '판매가', '재고'];
-var SELLER_CURATION_TIP_COL = 9;
+// 거래처별 품번 시작값 — 거래처 선택 시 해당 범위 안에서 다음 순번을 자동으로 매긴다.
+// 목록에 없는 거래처(직접입력 포함)는 DEFAULT_CODE_START부터 시작.
+var VENDOR_CODE_START = { '루하': 2001, '실버베스트': 3001, '페이버': 5001 };
+var DEFAULT_CODE_START = 9001;
+var DEFAULT_VENDOR = '페이버'; // 거래처 미선택 시 자사 재고로 간주
+
+// 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 거래처(6) 제작가(7)
+//                  원가(8) 판매가(9) 재고(10) 상품설명(11) 큐레이션팁(12)
+//                  [배수(13) 자동계산] 이미지URL(14, 기술용 — 앱 미리보기/파일정리용)
+var INTERNAL_HEADERS = [
+  '품번', '이미지', '상품명', '옵션1', '옵션2', '거래처', '제작가',
+  '원가', '판매가', '재고', '상품설명', '큐레이션팁'
+];
+var INTERNAL_MULTIPLIER_COL = 13;
+var INTERNAL_IMAGE_URL_COL = 14;
+// 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 판매가(6) 재고(7) 상품설명(8)
+var SELLER_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '판매가', '재고', '상품설명'];
 
 // ===== ENTRY POINTS =====
 
@@ -43,9 +53,8 @@ function doGet(e) {
     if (!checkKey_(e.parameter.apiKey)) return jsonOut_({ ok: false, error: 'unauthorized' });
 
     if (action === 'vendors') return jsonOut_({ ok: true, vendors: getVendors_() });
-    if (action === 'checkDuplicate') return jsonOut_(checkDuplicate_(e.parameter.code));
+    if (action === 'nextCode') return jsonOut_({ ok: true, code: getNextCode_(e.parameter.vendor) });
     if (action === 'list') return jsonOut_({ ok: true, items: listProducts_(Number(e.parameter.limit) || 100) });
-    if (action === 'fixImageUrls') return jsonOut_(fixImageUrlFormat_());
 
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -60,6 +69,8 @@ function doPost(e) {
 
     if (body.action === 'save') return jsonOut_(saveProduct_(body));
     if (body.action === 'addVendor') return jsonOut_({ ok: true, vendors: addVendorIfMissing_(body.vendor) });
+    if (body.action === 'setVendors') return jsonOut_({ ok: true, vendors: setVendorList_(body.vendors) });
+    if (body.action === 'sortByCode') return jsonOut_(sortByCode_());
     if (body.action === 'updateImage') return jsonOut_(updateImage_(body));
     if (body.action === 'update') return jsonOut_(updateProduct_(body));
     if (body.action === 'delete') return jsonOut_(deleteProduct_(body));
@@ -77,7 +88,8 @@ function setup() {
   var productSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(productSheet, INTERNAL_HEADERS);
   ensureMultiplierColumn_(productSheet);
-  ensureColumnHeader_(productSheet, INTERNAL_CURATION_TIP_COL, '큐레이션팁');
+  ensureColumnHeader_(productSheet, INTERNAL_IMAGE_URL_COL, '이미지URL');
+  ensureFilter_(productSheet, INTERNAL_IMAGE_URL_COL);
   cleanupBlankInternalRows_();
 
   var vendorSheet = internalSs.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || internalSs.insertSheet(CONFIG.VENDOR_SHEET_NAME);
@@ -86,9 +98,53 @@ function setup() {
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
-  ensureColumnHeader_(sellerSheet, SELLER_CURATION_TIP_COL, '큐레이션팁');
 
   Logger.log('setup 완료');
+}
+
+// 컬럼 구조를 새로 바꿀 때 1회만 수동 실행 — 두 시트의 기존 내용을 전부 지우고 새 헤더로 재생성한다.
+// 되돌릴 수 없으므로 스크립트 에디터에서 직접 선택해 실행할 것 (원격 doGet/doPost로는 노출하지 않음).
+function resetProductSheets() {
+  var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
+  internalSheet.clear();
+  internalSheet.getRange(1, 1, 1, INTERNAL_HEADERS.length).setValues([INTERNAL_HEADERS]);
+  internalSheet.setFrozenRows(1);
+  ensureMultiplierColumn_(internalSheet);
+  ensureColumnHeader_(internalSheet, INTERNAL_IMAGE_URL_COL, '이미지URL');
+  ensureFilter_(internalSheet, INTERNAL_IMAGE_URL_COL);
+
+  var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
+  var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
+  sellerSheet.clear();
+  sellerSheet.getRange(1, 1, 1, SELLER_HEADERS.length).setValues([SELLER_HEADERS]);
+  sellerSheet.setFrozenRows(1);
+
+  Logger.log('시트 초기화 완료 (새 컬럼 구조 적용)');
+}
+
+// 내부용 시트 헤더 행에 구글 시트 필터를 걸어준다 — 거래처별로 걸러보거나 판매가 등 원하는
+// 컬럼 기준으로 오름차순/내림차순 정렬해볼 수 있음(시트 상단 헤더 화살표 클릭). 셀러용에는 적용 안 함.
+function ensureFilter_(sheet, numCols) {
+  var existing = sheet.getFilter();
+  if (existing) existing.remove();
+  var numRows = Math.max(sheet.getMaxRows(), 2);
+  sheet.getRange(1, 1, numRows, numCols).createFilter();
+}
+
+// 상품 사진 드라이브 폴더(DRIVE_FOLDER_ID) 안의 파일을 전부 휴지통으로 보낸다.
+// resetProductSheets()와 짝을 이루는 1회성 정리 함수 — 시트만 지우면 사진 파일은 그대로 남기 때문.
+// 휴지통 이동이라 구글 드라이브에서 약 30일간 복구 가능. 스크립트 에디터에서 직접 실행할 것.
+function clearProductImages() {
+  var folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+  var files = folder.getFiles();
+  var count = 0;
+  while (files.hasNext()) {
+    var file = files.next();
+    file.setTrashed(true);
+    count++;
+  }
+  Logger.log('사진 ' + count + '개 휴지통으로 이동 완료');
 }
 
 function ensureHeader_(sheet, headers) {
@@ -108,20 +164,20 @@ function ensureColumnHeader_(sheet, col, headerText) {
   }
 }
 
-// 내부용 시트 N열: 원가(I) 대비 판매가(J) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
+// 내부용 시트 M열: 원가(H) 대비 판매가(I) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
 // ARRAYFORMULA가 열 전체를 스스로 채우므로, 이 열에는 절대 다른 값을 개별 setValue로 쓰면 안 됨.
 function ensureMultiplierColumn_(sheet) {
-  var header = sheet.getRange(1, 14).getValue();
+  var header = sheet.getRange(1, INTERNAL_MULTIPLIER_COL).getValue();
   if (String(header).trim() === '') {
-    sheet.getRange(1, 14).setValue('배수');
-    sheet.getRange(2, 14).setFormula(
-      '=ARRAYFORMULA(IF(I2:I="","",IF(I2:I=0,"",ROUND(J2:J/I2:I,2))))'
+    sheet.getRange(1, INTERNAL_MULTIPLIER_COL).setValue('배수');
+    sheet.getRange(2, INTERNAL_MULTIPLIER_COL).setFormula(
+      '=ARRAYFORMULA(IF(H2:H="","",IF(H2:H=0,"",ROUND(I2:I/H2:H,2))))'
     );
   }
 }
 
 // A열(품번)이 비어있는 행 중 실제 마지막으로 데이터가 있는 행 번호를 반환.
-// sheet.getLastRow()는 N열 ARRAYFORMULA의 스필 범위까지 "데이터 있음"으로 잡아서
+// sheet.getLastRow()는 배수열 ARRAYFORMULA의 스필 범위까지 "데이터 있음"으로 잡아서
 // 시트 끝까지 부풀려지는 문제가 있어 대신 사용한다.
 function getLastDataRow_(sheet) {
   var maxRows = sheet.getMaxRows();
@@ -134,50 +190,33 @@ function getLastDataRow_(sheet) {
 }
 
 // A열(품번)이 빈 행들을 전부 삭제한다 (배수 수식 버블 등으로 생길 수 있는 빈 행 정리용, 안전하게 반복 실행 가능).
+// 구글 시트는 고정된 행(헤더)을 제외한 행을 전부 지울 수 없으므로, 데이터 영역에 최소 1행은 항상 남긴다.
 function cleanupBlankInternalRows_() {
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
   if (!sheet) return;
   var maxRows = sheet.getMaxRows();
+  if (maxRows < 3) return; // 헤더 + 최소 1행을 남길 여유가 없으면 건너뜀
   var codes = sheet.getRange(2, 1, maxRows - 1, 1).getValues();
   var deleted = 0;
+  var maxDeletable = maxRows - 2; // 헤더 1행 + 데이터 영역 최소 1행은 항상 유지
   var i = codes.length - 1;
-  while (i >= 0) {
+  while (i >= 0 && deleted < maxDeletable) {
     if (String(codes[i][0]).trim() === '') {
       var end = i;
       while (i >= 0 && String(codes[i][0]).trim() === '') i--;
       var start = i + 1;
       var count = end - start + 1;
-      sheet.deleteRows(start + 2, count);
-      deleted += count;
+      if (deleted + count > maxDeletable) count = maxDeletable - deleted;
+      if (count > 0) {
+        sheet.deleteRows(start + 2, count);
+        deleted += count;
+      }
     } else {
       i--;
     }
   }
   Logger.log('빈 행 ' + deleted + '개 삭제 완료');
-}
-
-// L열(이미지URL)의 기존 uc?id= 형식을 thumbnail 형식으로 일괄 변환 (앱 화면 미리보기 깨짐 수정).
-// 이미 변환된 행은 건드리지 않으므로 여러 번 실행해도 안전함.
-function fixImageUrlFormat_() {
-  var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
-  var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
-  if (!sheet) return { ok: false, error: '내부용 시트를 찾을 수 없습니다.' };
-  var lastRow = getLastDataRow_(sheet);
-  if (lastRow < 2) return { ok: true, fixed: 0 };
-  var range = sheet.getRange(2, 12, lastRow - 1, 1);
-  var values = range.getValues();
-  var fixed = 0;
-  for (var i = 0; i < values.length; i++) {
-    var url = String(values[i][0] || '');
-    if (url.indexOf('drive.google.com/uc?id=') === -1) continue;
-    var match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-    if (!match) continue;
-    values[i][0] = 'https://drive.google.com/thumbnail?id=' + match[1] + '&sz=w1000';
-    fixed++;
-  }
-  if (fixed > 0) range.setValues(values);
-  return { ok: true, fixed: fixed };
 }
 
 // ===== VENDORS =====
@@ -206,26 +245,80 @@ function addVendorIfMissing_(vendorName) {
   return existing;
 }
 
-// ===== DUPLICATE CHECK =====
+// 거래처 목록 전체를 주어진 순서/구성으로 통째로 덮어쓴다 (순서 변경, 삭제 등).
+function setVendorList_(vendorList) {
+  var names = (vendorList || [])
+    .map(function (v) { return String(v || '').trim(); })
+    .filter(function (v) { return v !== ''; });
+  var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var sheet = ss.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || ss.insertSheet(CONFIG.VENDOR_SHEET_NAME);
+  sheet.clear();
+  sheet.getRange(1, 1).setValue('거래처명');
+  sheet.setFrozenRows(1);
+  if (names.length > 0) {
+    sheet.getRange(2, 1, names.length, 1).setValues(names.map(function (n) { return [n]; }));
+  }
+  return names;
+}
 
-function checkDuplicate_(code) {
-  code = String(code || '').trim();
-  if (!code) return { ok: true, exists: false };
+// ===== NEXT CODE (거래처별 품번 자동 채번) =====
+
+// 내부용 시트에서 해당 거래처의 기존 품번 중 최댓값+1을 반환. 거래처에 등록된 상품이 아직 없으면
+// VENDOR_CODE_START(없으면 DEFAULT_CODE_START)를 시작값으로 사용. 저장 시점에 다시 계산하므로
+// (saveProduct_ 참고) 폼에 보여주는 값은 어디까지나 미리보기이고, 최종 번호는 서버가 확정한다.
+function getNextCode_(vendor) {
+  vendor = String(vendor || '').trim() || DEFAULT_VENDOR;
+  var start = VENDOR_CODE_START[vendor] || DEFAULT_CODE_START;
+
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
-  if (!sheet) return { ok: true, exists: false };
+  if (!sheet) return start;
   var lastRow = getLastDataRow_(sheet);
-  if (lastRow < 2) return { ok: true, exists: false };
-  var values = sheet.getRange(2, 1, lastRow - 1, 3).getValues(); // A 품번, C 상품명
-  var found = false;
-  var name = '';
+  if (lastRow < 2) return start;
+
+  var values = sheet.getRange(2, 1, lastRow - 1, 6).getValues(); // A 품번 ~ F 거래처
+  var max = 0;
   for (var i = 0; i < values.length; i++) {
-    if (String(values[i][0]).trim() === code) {
-      found = true;
-      name = values[i][2];
-    }
+    if (String(values[i][5]).trim() !== vendor) continue;
+    var num = Number(values[i][0]);
+    if (!isNaN(num) && num > max) max = num;
   }
-  return { ok: true, exists: found, name: name };
+  return max >= start ? max + 1 : start;
+}
+
+// ===== SORT (품번 오름차순 재정렬) =====
+
+// 거래처를 번갈아가며 등록하면 행 순서가 품번 순서와 어긋나므로, 등록을 어느 정도 마친 뒤
+// 품번 오름차순으로 행을 재배치한다. 내부용/셀러용을 항상 같은 순서로 같이 재배치해서
+// 두 시트의 행 번호 1:1 정렬을 유지한다. 배수(M열)는 수식 전용이라 건드리지 않음 — 값이 아니라
+// 위치가 바뀐 각 행의 H/I열 기준으로 자동 재계산된다.
+function sortByCode_() {
+  var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
+  if (!internalSheet) return { ok: false, error: '내부용 시트를 찾을 수 없습니다.' };
+
+  var lastRow = getLastDataRow_(internalSheet);
+  if (lastRow < 2) return { ok: true, sorted: 0 };
+  var count = lastRow - 1;
+
+  var internalLeft = internalSheet.getRange(2, 1, count, 12).getValues(); // A~L (배수 제외)
+  var internalRight = internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).getValues(); // 이미지URL
+
+  var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
+  var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
+  var sellerValues = sellerSheet ? sellerSheet.getRange(2, 1, count, 8).getValues() : null;
+
+  var indices = internalLeft.map(function (_, i) { return i; });
+  indices.sort(function (a, b) { return Number(internalLeft[a][0]) - Number(internalLeft[b][0]); });
+
+  internalSheet.getRange(2, 1, count, 12).setValues(indices.map(function (i) { return internalLeft[i]; }));
+  internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).setValues(indices.map(function (i) { return internalRight[i]; }));
+
+  if (sellerSheet && sellerValues) {
+    sellerSheet.getRange(2, 1, count, 8).setValues(indices.map(function (i) { return sellerValues[i]; }));
+  }
+
+  return { ok: true, sorted: count };
 }
 
 // ===== LIST =====
@@ -238,9 +331,9 @@ function listProducts_(limit) {
   if (lastRow < 2) return [];
   var startRow = Math.max(2, lastRow - limit + 1);
   var numRows = lastRow - startRow + 1;
-  // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 상품설명, G 식별코드, H 거래처,
-  // I 원가, J 판매가, K 재고, L 이미지URL, M 등록일시, N 배수, O 큐레이션팁
-  var values = sheet.getRange(startRow, 1, numRows, INTERNAL_CURATION_TIP_COL).getValues();
+  // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 거래처, G 제작가,
+  // H 원가, I 판매가, J 재고, K 상품설명, L 큐레이션팁, M 배수, N 이미지URL
+  var values = sheet.getRange(startRow, 1, numRows, INTERNAL_IMAGE_URL_COL).getValues();
   var items = [];
   for (var i = values.length - 1; i >= 0; i--) {
     var row = values[i];
@@ -250,14 +343,14 @@ function listProducts_(limit) {
       name: row[2],
       option1: row[3] || '',
       option2: row[4] || '',
-      description: row[5] || '',
-      internalCode: row[6],
-      vendor: row[7],
-      cost: row[8],
-      price: row[9],
-      stock: row[10],
-      imageUrl: row[11] || '',
-      curationTip: row[INTERNAL_CURATION_TIP_COL - 1] || ''
+      vendor: row[5],
+      productionCost: row[6],
+      cost: row[7],
+      price: row[8],
+      stock: row[9],
+      description: row[10] || '',
+      curationTip: row[11] || '',
+      imageUrl: row[INTERNAL_IMAGE_URL_COL - 1] || ''
     });
   }
   return items;
@@ -266,55 +359,54 @@ function listProducts_(limit) {
 // ===== SAVE =====
 
 function saveProduct_(body) {
-  var productCode = String(body.productCode || '').trim();
   var productName = String(body.productName || '').trim();
   var option1 = String(body.productOption1 || '').trim();
   var option2 = String(body.productOption2 || '').trim();
-  var internalCode = String(body.internalCode || '').trim();
-  var vendor = String(body.vendor || '').trim();
+  var vendor = String(body.vendor || '').trim() || DEFAULT_VENDOR;
+  var productionCost = Number(body.productionCost) || 0;
   var cost = Number(body.cost) || 0;
   var price = Number(body.price) || 0;
   var stock = Number(body.stock) || 0;
   var productDescription = String(body.productDescription || '').trim();
   var curationTip = String(body.curationTip || '').trim();
 
-  if (!productCode || !productName) {
-    return { ok: false, error: '품번/상품명은 필수입니다.' };
+  if (!productName) {
+    return { ok: false, error: '상품명은 필수입니다.' };
   }
 
   // 거래처 목록에 없으면 자동 추가
-  if (vendor) addVendorIfMissing_(vendor);
+  addVendorIfMissing_(vendor);
+
+  // 품번은 항상 서버가 거래처 기준으로 새로 계산한다 (클라이언트가 보낸 값은 미리보기일 뿐 신뢰하지 않음).
+  var productCode = getNextCode_(vendor);
 
   var imageUrl = '';
   var driveFile = null;
   if (body.imageBase64) {
-    driveFile = saveImageToDrive_(body.imageBase64, body.imageMimeType || 'image/jpeg', productCode);
+    driveFile = saveImageToDrive_(body.imageBase64, body.imageMimeType || 'image/jpeg', String(productCode));
     imageUrl = driveFile.url;
   }
-
-  var now = new Date();
 
   // ---- 내부용 시트 ----
   var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME) || internalSs.insertSheet(CONFIG.PRODUCT_SHEET_NAME);
   ensureHeader_(internalSheet, INTERNAL_HEADERS);
   ensureMultiplierColumn_(internalSheet);
-  ensureColumnHeader_(internalSheet, INTERNAL_CURATION_TIP_COL, '큐레이션팁');
+  ensureColumnHeader_(internalSheet, INTERNAL_IMAGE_URL_COL, '이미지URL');
   var newRow = getLastDataRow_(internalSheet) + 1;
 
   internalSheet.getRange(newRow, 1).setValue(productCode);
   internalSheet.getRange(newRow, 3).setValue(productName);
   internalSheet.getRange(newRow, 4).setValue(option1);
   internalSheet.getRange(newRow, 5).setValue(option2);
-  internalSheet.getRange(newRow, 6).setValue(productDescription);
-  internalSheet.getRange(newRow, 7).setValue(internalCode);
-  internalSheet.getRange(newRow, 8).setValue(vendor);
-  internalSheet.getRange(newRow, 9).setValue(cost);
-  internalSheet.getRange(newRow, 10).setValue(price);
-  internalSheet.getRange(newRow, 11).setValue(stock);
-  internalSheet.getRange(newRow, 12).setValue(imageUrl);
-  internalSheet.getRange(newRow, 13).setValue(now);
-  internalSheet.getRange(newRow, INTERNAL_CURATION_TIP_COL).setValue(curationTip);
+  internalSheet.getRange(newRow, 6).setValue(vendor);
+  internalSheet.getRange(newRow, 7).setValue(productionCost);
+  internalSheet.getRange(newRow, 8).setValue(cost);
+  internalSheet.getRange(newRow, 9).setValue(price);
+  internalSheet.getRange(newRow, 10).setValue(stock);
+  internalSheet.getRange(newRow, 11).setValue(productDescription);
+  internalSheet.getRange(newRow, 12).setValue(curationTip);
+  internalSheet.getRange(newRow, INTERNAL_IMAGE_URL_COL).setValue(imageUrl);
   if (imageUrl) setCellImage_(internalSheet, newRow, 2, imageUrl);
   internalSheet.setRowHeight(newRow, CONFIG.IMAGE_ROW_HEIGHT);
   internalSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
@@ -323,22 +415,20 @@ function saveProduct_(body) {
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
   ensureHeader_(sellerSheet, SELLER_HEADERS);
-  ensureColumnHeader_(sellerSheet, SELLER_CURATION_TIP_COL, '큐레이션팁');
   var sellerRow = newRow;
 
   sellerSheet.getRange(sellerRow, 1).setValue(productCode);
   sellerSheet.getRange(sellerRow, 3).setValue(productName);
   sellerSheet.getRange(sellerRow, 4).setValue(option1);
   sellerSheet.getRange(sellerRow, 5).setValue(option2);
-  sellerSheet.getRange(sellerRow, 6).setValue(productDescription);
-  sellerSheet.getRange(sellerRow, 7).setValue(price);
-  sellerSheet.getRange(sellerRow, 8).setValue(stock);
-  sellerSheet.getRange(sellerRow, SELLER_CURATION_TIP_COL).setValue(curationTip);
+  sellerSheet.getRange(sellerRow, 6).setValue(price);
+  sellerSheet.getRange(sellerRow, 7).setValue(stock);
+  sellerSheet.getRange(sellerRow, 8).setValue(productDescription);
   if (imageUrl) setCellImage_(sellerSheet, sellerRow, 2, imageUrl);
   sellerSheet.setRowHeight(sellerRow, CONFIG.IMAGE_ROW_HEIGHT);
   sellerSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
 
-  return { ok: true };
+  return { ok: true, productCode: productCode };
 }
 
 // ===== UPDATE (등록된 상품 목록 화면에서 필드 직접 수정) =====
@@ -363,8 +453,8 @@ function updateProduct_(body) {
   var option1 = String(body.productOption1 || '').trim();
   var option2 = String(body.productOption2 || '').trim();
   var productDescription = String(body.productDescription || '').trim();
-  var internalCode = String(body.internalCode || '').trim();
   var vendor = String(body.vendor || '').trim();
+  var productionCost = Number(body.productionCost) || 0;
   var cost = Number(body.cost) || 0;
   var price = Number(body.price) || 0;
   var stock = Number(body.stock) || 0;
@@ -378,12 +468,12 @@ function updateProduct_(body) {
   internalSheet.getRange(row, 3).setValue(productName);
   internalSheet.getRange(row, 4).setValue(option1);
   internalSheet.getRange(row, 5).setValue(option2);
-  internalSheet.getRange(row, 6).setValue(productDescription);
-  internalSheet.getRange(row, 7).setValue(internalCode);
-  internalSheet.getRange(row, 8).setValue(vendor);
-  internalSheet.getRange(row, 9).setValue(cost);
-  internalSheet.getRange(row, 10).setValue(price);
-  internalSheet.getRange(row, 11).setValue(stock);
+  internalSheet.getRange(row, 6).setValue(vendor);
+  internalSheet.getRange(row, 7).setValue(productionCost);
+  internalSheet.getRange(row, 8).setValue(cost);
+  internalSheet.getRange(row, 9).setValue(price);
+  internalSheet.getRange(row, 10).setValue(stock);
+  internalSheet.getRange(row, 11).setValue(productDescription);
 
   // 셀러용 시트: 내부용과 같은 행 번호 사용 (saveProduct_와 동일한 1:1 정렬 원칙)
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
@@ -395,9 +485,9 @@ function updateProduct_(body) {
       sellerSheet.getRange(row, 3).setValue(productName);
       sellerSheet.getRange(row, 4).setValue(option1);
       sellerSheet.getRange(row, 5).setValue(option2);
-      sellerSheet.getRange(row, 6).setValue(productDescription);
-      sellerSheet.getRange(row, 7).setValue(price);
-      sellerSheet.getRange(row, 8).setValue(stock);
+      sellerSheet.getRange(row, 6).setValue(price);
+      sellerSheet.getRange(row, 7).setValue(stock);
+      sellerSheet.getRange(row, 8).setValue(productDescription);
     }
   }
 
@@ -423,7 +513,7 @@ function updateImage_(body) {
 
   var driveFile = saveImageToDrive_(body.imageBase64, body.imageMimeType || 'image/jpeg', productCode);
 
-  internalSheet.getRange(row, 12).setValue(driveFile.url);
+  internalSheet.getRange(row, INTERNAL_IMAGE_URL_COL).setValue(driveFile.url);
   setCellImage_(internalSheet, row, 2, driveFile.url);
   internalSheet.setRowHeight(row, CONFIG.IMAGE_ROW_HEIGHT);
   internalSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
@@ -459,7 +549,8 @@ function deleteProduct_(body) {
     return { ok: false, error: '품번이 일치하지 않습니다. (해당 행이 이미 변경되었을 수 있습니다. 새로고침 후 다시 시도해주세요)' };
   }
 
-  var imageUrl = String(internalSheet.getRange(row, 12).getValue() || '');
+  var imageUrl = String(internalSheet.getRange(row, INTERNAL_IMAGE_URL_COL).getValue() || '');
+  ensureSpareRow_(internalSheet);
   internalSheet.deleteRow(row);
   deleteDriveFileByUrl_(imageUrl);
 
@@ -469,11 +560,20 @@ function deleteProduct_(body) {
   if (sellerSheet) {
     var sellerRowCode = String(sellerSheet.getRange(row, 1).getValue()).trim();
     if (sellerRowCode === productCode) {
+      ensureSpareRow_(sellerSheet);
       sellerSheet.deleteRow(row);
     }
   }
 
   return { ok: true };
+}
+
+// 구글 시트는 고정된 행(헤더)을 제외한 행을 전부 지울 수 없다 — 남은 데이터가 1행뿐일 때
+// 그 행을 지우면 이 제약에 걸리므로, 지우기 전에 여분의 빈 행을 하나 만들어둔다.
+function ensureSpareRow_(sheet) {
+  if (sheet.getMaxRows() <= sheet.getFrozenRows() + 1) {
+    sheet.insertRowAfter(sheet.getMaxRows());
+  }
 }
 
 function deleteDriveFileByUrl_(url) {

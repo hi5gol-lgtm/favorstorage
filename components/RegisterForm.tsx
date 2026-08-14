@@ -41,6 +41,7 @@ export default function RegisterForm() {
   const [vendors, setVendors] = useState<string[]>([]);
   const [vendorSelect, setVendorSelect] = useState('');
   const [customVendor, setCustomVendor] = useState('');
+  const [vendorCode, setVendorCode] = useState('');
 
   const [productionCost, setProductionCost] = useState('');
   const [cost, setCost] = useState('');
@@ -112,6 +113,7 @@ export default function RegisterForm() {
       setProductDescription((draft.productDescription as string) ?? '');
       setVendorSelect((draft.vendorSelect as string) ?? '');
       setCustomVendor((draft.customVendor as string) ?? '');
+      setVendorCode((draft.vendorCode as string) ?? '');
       setProductionCost((draft.productionCost as string) ?? '');
       setCost((draft.cost as string) ?? '');
       setPrice((draft.price as string) ?? '');
@@ -137,6 +139,7 @@ export default function RegisterForm() {
           productDescription,
           vendorSelect,
           customVendor,
+          vendorCode,
           productionCost,
           cost,
           price,
@@ -156,6 +159,7 @@ export default function RegisterForm() {
     productDescription,
     vendorSelect,
     customVendor,
+    vendorCode,
     productionCost,
     cost,
     price,
@@ -262,6 +266,7 @@ export default function RegisterForm() {
     setProductDescription('');
     setVendorSelect('');
     setCustomVendor('');
+    setVendorCode('');
     setProductionCost('');
     setCost('');
     setPrice('');
@@ -309,6 +314,7 @@ export default function RegisterForm() {
           productOption1: option1Value,
           productOption2: option2Value,
           vendor: vendorValue,
+          vendorCode: vendorCode.trim(),
           productionCost: productionCostNum,
           cost: costNum,
           price: priceNum,
@@ -499,6 +505,16 @@ export default function RegisterForm() {
               placeholder="새 거래처명 입력"
             />
           )}
+        </Field>
+
+        <Field label="업체상품코드">
+          <input
+            type="text"
+            value={vendorCode}
+            onChange={(e) => setVendorCode(e.target.value)}
+            className="input"
+            placeholder="거래처 자체 상품코드 (선택)"
+          />
         </Field>
 
         <Field label="품번 (자동 배정)">

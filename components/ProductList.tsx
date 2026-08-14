@@ -12,6 +12,7 @@ interface ProductItem {
   option1: string;
   option2: string;
   vendor: string;
+  vendorCode: string;
   productionCost: number;
   cost: number;
   price: number;
@@ -28,6 +29,7 @@ interface EditDraft {
   description: string;
   vendorSelect: string;
   customVendor: string;
+  vendorCode: string;
   productionCost: string;
   cost: string;
   price: string;
@@ -57,6 +59,7 @@ function toDraft(item: ProductItem, vendors: string[]): EditDraft {
     description: item.description || '',
     vendorSelect: known ? vendor : vendor ? VENDOR_CUSTOM_OPTION : '',
     customVendor: known ? '' : vendor,
+    vendorCode: item.vendorCode || '',
     productionCost: String(item.productionCost || ''),
     cost: String(item.cost || ''),
     price: String(item.price || ''),
@@ -206,6 +209,7 @@ export default function ProductList() {
           productOption2: editDraft.option2.trim(),
           productDescription: editDraft.description.trim(),
           vendor: vendorValue,
+          vendorCode: editDraft.vendorCode.trim(),
           productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
           cost: Number(editDraft.cost) || 0,
           price: Number(editDraft.price) || 0,
@@ -228,6 +232,7 @@ export default function ProductList() {
                   option2: editDraft.option2.trim(),
                   description: editDraft.description.trim(),
                   vendor: vendorValue,
+                  vendorCode: editDraft.vendorCode.trim(),
                   productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
                   cost: Number(editDraft.cost) || 0,
                   price: Number(editDraft.price) || 0,
@@ -346,6 +351,13 @@ export default function ProductList() {
                       />
                     )}
                   </EditField>
+                  <EditField label="업체상품코드">
+                    <input
+                      value={editDraft.vendorCode}
+                      onChange={(e) => setEditDraft({ ...editDraft, vendorCode: e.target.value })}
+                      className="input"
+                    />
+                  </EditField>
                   <div className="grid grid-cols-2 gap-2">
                     {isFavorVendor(editDraft) && (
                       <EditField label="제작가">
@@ -459,6 +471,7 @@ export default function ProductList() {
                     <p className="text-xs text-gray-500">
                       {item.code}
                       {item.vendor ? ` · ${item.vendor}` : ''}
+                      {item.vendorCode ? ` · ${item.vendorCode}` : ''}
                     </p>
                     <p className="text-xs text-gray-700">
                       원가 {formatWon(item.cost)} → 판매가 {formatWon(item.price)}

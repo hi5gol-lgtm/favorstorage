@@ -29,19 +29,19 @@ var CONFIG = {
 
 // 거래처별 품번 시작값 — 거래처 선택 시 해당 범위 안에서 다음 순번을 자동으로 매긴다.
 // 목록에 없는 거래처(직접입력 포함)는 DEFAULT_CODE_START부터 시작.
-var VENDOR_CODE_START = { '루하': 2001, '실버베스트': 3001, '페이버': 5001 };
+var VENDOR_CODE_START = { 'J&J': 1001, '루하': 2001, '실버베스트': 3001, '페이버': 5001 };
 var DEFAULT_CODE_START = 9001;
 var DEFAULT_VENDOR = '페이버'; // 거래처 미선택 시 자사 재고로 간주
 
-// 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 거래처(6) 제작가(7)
-//                  원가(8) 판매가(9) 재고(10) 상품설명(11) 큐레이션팁(12)
-//                  [배수(13) 자동계산] 이미지URL(14, 기술용 — 앱 미리보기/파일정리용)
+// 내부용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 거래처(6) 업체상품코드(7)
+//                  제작가(8) 원가(9) 판매가(10) 재고(11) 상품설명(12) 큐레이션팁(13)
+//                  [배수(14) 자동계산] 이미지URL(15, 기술용 — 앱 미리보기/파일정리용)
 var INTERNAL_HEADERS = [
-  '품번', '이미지', '상품명', '옵션1', '옵션2', '거래처', '제작가',
+  '품번', '이미지', '상품명', '옵션1', '옵션2', '거래처', '업체상품코드', '제작가',
   '원가', '판매가', '재고', '상품설명', '큐레이션팁'
 ];
-var INTERNAL_MULTIPLIER_COL = 13;
-var INTERNAL_IMAGE_URL_COL = 14;
+var INTERNAL_MULTIPLIER_COL = 14;
+var INTERNAL_IMAGE_URL_COL = 15;
 // 셀러용 시트 컬럼: 품번(1) 이미지(2) 상품명(3) 옵션1(4) 옵션2(5) 판매가(6) 재고(7) 상품설명(8)
 var SELLER_HEADERS = ['품번', '이미지', '상품명', '옵션1', '옵션2', '판매가', '재고', '상품설명'];
 
@@ -93,7 +93,7 @@ function setup() {
   cleanupBlankInternalRows_();
 
   var vendorSheet = internalSs.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || internalSs.insertSheet(CONFIG.VENDOR_SHEET_NAME);
-  ensureHeader_(vendorSheet, ['거래처명']);
+  ensureVendorHeader_(vendorSheet);
 
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME) || sellerSs.insertSheet(CONFIG.SELLER_SHEET_NAME);
@@ -164,10 +164,10 @@ function ensureColumnHeader_(sheet, col, headerText) {
   }
 }
 
-// 내부용 시트 M열: 원가(H) 대비 판매가(I) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
+// 내부용 시트 N열: 원가(I) 대비 판매가(J) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
 // ARRAYFORMULA가 열 전체를 스스로 채우므로, 이 열에는 절대 다른 값을 개별 setValue로 쓰면 안 됨.
-// 헤더 텍스트가 있어도 수식 자체는 없을 수 있음(마지막 남은 데이터 행을 지우면 수식이 든 M2 셀도
-// 같이 삭제됨) — 그래서 헤더가 아니라 M2 셀에 수식이 실제로 있는지를 기준으로 재생성 여부를 판단한다.
+// 헤더 텍스트가 있어도 수식 자체는 없을 수 있음(마지막 남은 데이터 행을 지우면 수식이 든 N2 셀도
+// 같이 삭제됨) — 그래서 헤더가 아니라 N2 셀에 수식이 실제로 있는지를 기준으로 재생성 여부를 판단한다.
 function ensureMultiplierColumn_(sheet) {
   var header = sheet.getRange(1, INTERNAL_MULTIPLIER_COL).getValue();
   if (String(header).trim() === '') {
@@ -175,7 +175,7 @@ function ensureMultiplierColumn_(sheet) {
   }
   var formulaCell = sheet.getRange(2, INTERNAL_MULTIPLIER_COL);
   if (!formulaCell.getFormula()) {
-    formulaCell.setFormula('=ARRAYFORMULA(IF(H2:H="","",IF(H2:H=0,"",ROUND(I2:I/H2:H,2))))');
+    formulaCell.setFormula('=ARRAYFORMULA(IF(I2:I="","",IF(I2:I=0,"",ROUND(J2:J/I2:I,2))))');
   }
   // 행 삽입/복사 과정에서 다른 셀의 서식(예: 날짜)이 옮겨 붙어 3.5가 "1900. 1. 2" 같은 날짜로
   // 보이는 경우가 있어, 매번 일반 숫자 서식으로 고정한다.
@@ -227,14 +227,31 @@ function cleanupBlankInternalRows_() {
 
 // ===== VENDORS =====
 
-function getVendors_() {
+// 거래처목록 시트: 거래처명(A) / 번호그룹(B, 선택) / 시작번호(C, 선택).
+// 번호그룹이 같은 거래처들은 품번을 같은 번호대에서 이어서 쓴다(예: SKU가 적은 잡화 거래처 여러 개를
+// 하나의 번호대로 묶을 때). 번호그룹을 비워두면 그 거래처 혼자만의 번호대가 된다.
+function ensureVendorHeader_(sheet) {
+  ensureColumnHeader_(sheet, 1, '거래처명');
+  ensureColumnHeader_(sheet, 2, '번호그룹');
+  ensureColumnHeader_(sheet, 3, '시작번호');
+}
+
+function getVendorConfigs_() {
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.VENDOR_SHEET_NAME);
   if (!sheet) return [];
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  return values.map(function (r) { return String(r[0]).trim(); }).filter(function (v) { return v !== ''; });
+  var values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  return values
+    .map(function (r) {
+      return { name: String(r[0] || '').trim(), group: String(r[1] || '').trim(), start: Number(r[2]) };
+    })
+    .filter(function (v) { return v.name !== ''; });
+}
+
+function getVendors_() {
+  return getVendorConfigs_().map(function (v) { return v.name; });
 }
 
 function addVendorIfMissing_(vendorName) {
@@ -242,7 +259,7 @@ function addVendorIfMissing_(vendorName) {
   if (!name) return getVendors_();
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || ss.insertSheet(CONFIG.VENDOR_SHEET_NAME);
-  ensureHeader_(sheet, ['거래처명']);
+  ensureVendorHeader_(sheet);
   var existing = getVendors_();
   if (existing.indexOf(name) === -1) {
     sheet.appendRow([name]);
@@ -252,29 +269,56 @@ function addVendorIfMissing_(vendorName) {
 }
 
 // 거래처 목록 전체를 주어진 순서/구성으로 통째로 덮어쓴다 (순서 변경, 삭제 등).
+// 기존에 설정돼 있던 번호그룹/시작번호는 이름이 같으면 그대로 유지한다.
 function setVendorList_(vendorList) {
   var names = (vendorList || [])
     .map(function (v) { return String(v || '').trim(); })
     .filter(function (v) { return v !== ''; });
+  var byName = {};
+  getVendorConfigs_().forEach(function (c) { byName[c.name] = c; });
+
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.VENDOR_SHEET_NAME) || ss.insertSheet(CONFIG.VENDOR_SHEET_NAME);
   sheet.clear();
-  sheet.getRange(1, 1).setValue('거래처명');
+  sheet.getRange(1, 1, 1, 3).setValues([['거래처명', '번호그룹', '시작번호']]);
   sheet.setFrozenRows(1);
   if (names.length > 0) {
-    sheet.getRange(2, 1, names.length, 1).setValues(names.map(function (n) { return [n]; }));
+    var rows = names.map(function (n) {
+      var c = byName[n];
+      return [n, c ? c.group : '', c && !isNaN(c.start) && c.start > 0 ? c.start : ''];
+    });
+    sheet.getRange(2, 1, rows.length, 3).setValues(rows);
   }
   return names;
 }
 
 // ===== NEXT CODE (거래처별 품번 자동 채번) =====
 
-// 내부용 시트에서 해당 거래처의 기존 품번 중 최댓값+1을 반환. 거래처에 등록된 상품이 아직 없으면
-// VENDOR_CODE_START(없으면 DEFAULT_CODE_START)를 시작값으로 사용. 저장 시점에 다시 계산하므로
-// (saveProduct_ 참고) 폼에 보여주는 값은 어디까지나 미리보기이고, 최종 번호는 서버가 확정한다.
+// 내부용 시트에서 해당 거래처(또는 같은 번호그룹의 거래처들)의 기존 품번 중 최댓값+1을 반환.
+// 아직 등록된 상품이 없으면 거래처목록의 시작번호(없으면 VENDOR_CODE_START, 그것도 없으면
+// DEFAULT_CODE_START)를 시작값으로 사용. 저장 시점에 다시 계산하므로(saveProduct_ 참고)
+// 폼에 보여주는 값은 어디까지나 미리보기이고, 최종 번호는 서버가 확정한다.
 function getNextCode_(vendor) {
   vendor = String(vendor || '').trim() || DEFAULT_VENDOR;
-  var start = VENDOR_CODE_START[vendor] || DEFAULT_CODE_START;
+  var configs = getVendorConfigs_();
+  var mine = null;
+  for (var i = 0; i < configs.length; i++) {
+    if (configs[i].name === vendor) { mine = configs[i]; break; }
+  }
+
+  // 같은 번호그룹을 쓰는 모든 거래처명 집합 (그룹이 없으면 자기 자신만).
+  var groupVendors = {};
+  groupVendors[vendor] = true;
+  var start = mine && !isNaN(mine.start) && mine.start > 0 ? mine.start : null;
+  if (mine && mine.group) {
+    for (var j = 0; j < configs.length; j++) {
+      if (configs[j].group === mine.group) {
+        groupVendors[configs[j].name] = true;
+        if (start === null && !isNaN(configs[j].start) && configs[j].start > 0) start = configs[j].start;
+      }
+    }
+  }
+  if (start === null) start = VENDOR_CODE_START[vendor] || DEFAULT_CODE_START;
 
   var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
@@ -284,9 +328,10 @@ function getNextCode_(vendor) {
 
   var values = sheet.getRange(2, 1, lastRow - 1, 6).getValues(); // A 품번 ~ F 거래처
   var max = 0;
-  for (var i = 0; i < values.length; i++) {
-    if (String(values[i][5]).trim() !== vendor) continue;
-    var num = Number(values[i][0]);
+  for (var k = 0; k < values.length; k++) {
+    var rowVendor = String(values[k][5]).trim();
+    if (!groupVendors[rowVendor]) continue;
+    var num = Number(values[k][0]);
     if (!isNaN(num) && num > max) max = num;
   }
   return max >= start ? max + 1 : start;
@@ -296,8 +341,13 @@ function getNextCode_(vendor) {
 
 // 거래처를 번갈아가며 등록하면 행 순서가 품번 순서와 어긋나므로, 등록을 어느 정도 마친 뒤
 // 품번 오름차순으로 행을 재배치한다. 내부용/셀러용을 항상 같은 순서로 같이 재배치해서
-// 두 시트의 행 번호 1:1 정렬을 유지한다. 배수(M열)는 수식 전용이라 건드리지 않음 — 값이 아니라
-// 위치가 바뀐 각 행의 H/I열 기준으로 자동 재계산된다.
+// 두 시트의 행 번호 1:1 정렬을 유지한다.
+// 이미지가 포함된 A~M열은 getValues/setValues로 직접 옮기면 오류가 나서(Service error:
+// Spreadsheets), 시트 자체의 정렬 기능(Range.sort)을 사용한다 — 이미지가 셀과 함께 안전하게
+// 이동한다. 배수(N열, 수식 전용)는 정렬 범위에서 제외하고 정렬 후 재확인만 한다.
+// 이미지URL(O열)은 이미지가 아니라 텍스트라 정렬 전에 구해둔 순서대로 값만 옮겨도 안전하다.
+// 셀러용 시트는 정렬 전 내부용과 품번이 행마다 동일하므로, 자기 자신의 품번 기준으로 독립적으로
+// 정렬해도 내부용과 같은 최종 순서가 된다.
 function sortByCode_() {
   var internalSs = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
   var internalSheet = internalSs.getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
@@ -307,21 +357,20 @@ function sortByCode_() {
   if (lastRow < 2) return { ok: true, sorted: 0 };
   var count = lastRow - 1;
 
-  var internalLeft = internalSheet.getRange(2, 1, count, 12).getValues(); // A~L (배수 제외)
-  var internalRight = internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).getValues(); // 이미지URL
+  var codesBefore = internalSheet.getRange(2, 1, count, 1).getValues().map(function (r) { return Number(r[0]); });
+  var order = codesBefore.map(function (_, i) { return i; });
+  order.sort(function (a, b) { return codesBefore[a] - codesBefore[b]; });
+  var imageUrlBefore = internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).getValues();
+  var imageUrlAfter = order.map(function (i) { return imageUrlBefore[i]; });
+
+  internalSheet.getRange(2, 1, count, 13).sort({ column: 1, ascending: true });
+  internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).setValues(imageUrlAfter);
+  ensureMultiplierColumn_(internalSheet);
 
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
   var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
-  var sellerValues = sellerSheet ? sellerSheet.getRange(2, 1, count, 8).getValues() : null;
-
-  var indices = internalLeft.map(function (_, i) { return i; });
-  indices.sort(function (a, b) { return Number(internalLeft[a][0]) - Number(internalLeft[b][0]); });
-
-  internalSheet.getRange(2, 1, count, 12).setValues(indices.map(function (i) { return internalLeft[i]; }));
-  internalSheet.getRange(2, INTERNAL_IMAGE_URL_COL, count, 1).setValues(indices.map(function (i) { return internalRight[i]; }));
-
-  if (sellerSheet && sellerValues) {
-    sellerSheet.getRange(2, 1, count, 8).setValues(indices.map(function (i) { return sellerValues[i]; }));
+  if (sellerSheet) {
+    sellerSheet.getRange(2, 1, count, 8).sort({ column: 1, ascending: true });
   }
 
   return { ok: true, sorted: count };
@@ -337,8 +386,8 @@ function listProducts_(limit) {
   if (lastRow < 2) return [];
   var startRow = Math.max(2, lastRow - limit + 1);
   var numRows = lastRow - startRow + 1;
-  // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 거래처, G 제작가,
-  // H 원가, I 판매가, J 재고, K 상품설명, L 큐레이션팁, M 배수, N 이미지URL
+  // A 품번, B 이미지, C 상품명, D 옵션1, E 옵션2, F 거래처, G 업체상품코드, H 제작가,
+  // I 원가, J 판매가, K 재고, L 상품설명, M 큐레이션팁, N 배수, O 이미지URL
   var values = sheet.getRange(startRow, 1, numRows, INTERNAL_IMAGE_URL_COL).getValues();
   var items = [];
   for (var i = values.length - 1; i >= 0; i--) {
@@ -350,12 +399,13 @@ function listProducts_(limit) {
       option1: row[3] || '',
       option2: row[4] || '',
       vendor: row[5],
-      productionCost: row[6],
-      cost: row[7],
-      price: row[8],
-      stock: row[9],
-      description: row[10] || '',
-      curationTip: row[11] || '',
+      vendorCode: row[6] || '',
+      productionCost: row[7],
+      cost: row[8],
+      price: row[9],
+      stock: row[10],
+      description: row[11] || '',
+      curationTip: row[12] || '',
       imageUrl: row[INTERNAL_IMAGE_URL_COL - 1] || ''
     });
   }
@@ -369,6 +419,7 @@ function saveProduct_(body) {
   var option1 = String(body.productOption1 || '').trim();
   var option2 = String(body.productOption2 || '').trim();
   var vendor = String(body.vendor || '').trim() || DEFAULT_VENDOR;
+  var vendorCode = String(body.vendorCode || '').trim();
   var productionCost = Number(body.productionCost) || 0;
   var cost = Number(body.cost) || 0;
   var price = Number(body.price) || 0;
@@ -406,12 +457,13 @@ function saveProduct_(body) {
   internalSheet.getRange(newRow, 4).setValue(option1);
   internalSheet.getRange(newRow, 5).setValue(option2);
   internalSheet.getRange(newRow, 6).setValue(vendor);
-  internalSheet.getRange(newRow, 7).setValue(productionCost);
-  internalSheet.getRange(newRow, 8).setValue(cost);
-  internalSheet.getRange(newRow, 9).setValue(price);
-  internalSheet.getRange(newRow, 10).setValue(stock);
-  internalSheet.getRange(newRow, 11).setValue(productDescription);
-  internalSheet.getRange(newRow, 12).setValue(curationTip);
+  internalSheet.getRange(newRow, 7).setValue(vendorCode);
+  internalSheet.getRange(newRow, 8).setValue(productionCost);
+  internalSheet.getRange(newRow, 9).setValue(cost);
+  internalSheet.getRange(newRow, 10).setValue(price);
+  internalSheet.getRange(newRow, 11).setValue(stock);
+  internalSheet.getRange(newRow, 12).setValue(productDescription);
+  internalSheet.getRange(newRow, 13).setValue(curationTip);
   internalSheet.getRange(newRow, INTERNAL_IMAGE_URL_COL).setValue(imageUrl);
   if (imageUrl) setCellImage_(internalSheet, newRow, 2, imageUrl);
   internalSheet.setRowHeight(newRow, CONFIG.IMAGE_ROW_HEIGHT);
@@ -460,6 +512,7 @@ function updateProduct_(body) {
   var option2 = String(body.productOption2 || '').trim();
   var productDescription = String(body.productDescription || '').trim();
   var vendor = String(body.vendor || '').trim();
+  var vendorCode = String(body.vendorCode || '').trim();
   var productionCost = Number(body.productionCost) || 0;
   var cost = Number(body.cost) || 0;
   var price = Number(body.price) || 0;
@@ -475,11 +528,12 @@ function updateProduct_(body) {
   internalSheet.getRange(row, 4).setValue(option1);
   internalSheet.getRange(row, 5).setValue(option2);
   internalSheet.getRange(row, 6).setValue(vendor);
-  internalSheet.getRange(row, 7).setValue(productionCost);
-  internalSheet.getRange(row, 8).setValue(cost);
-  internalSheet.getRange(row, 9).setValue(price);
-  internalSheet.getRange(row, 10).setValue(stock);
-  internalSheet.getRange(row, 11).setValue(productDescription);
+  internalSheet.getRange(row, 7).setValue(vendorCode);
+  internalSheet.getRange(row, 8).setValue(productionCost);
+  internalSheet.getRange(row, 9).setValue(cost);
+  internalSheet.getRange(row, 10).setValue(price);
+  internalSheet.getRange(row, 11).setValue(stock);
+  internalSheet.getRange(row, 12).setValue(productDescription);
 
   // 셀러용 시트: 내부용과 같은 행 번호 사용 (saveProduct_와 동일한 1:1 정렬 원칙)
   var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);

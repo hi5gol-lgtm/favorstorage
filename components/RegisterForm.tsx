@@ -60,6 +60,8 @@ export default function RegisterForm() {
   const [toast, setToast] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
+  const [fileInputKey, setFileInputKey] = useState(0);
+
   const codeRequestSeq = useRef(0);
   const isFirstSave = useRef(true);
 
@@ -270,6 +272,7 @@ export default function RegisterForm() {
     setNameSuggestions([]);
     setCurationTips([]);
     setSuggestError('');
+    setFileInputKey((k) => k + 1);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -348,6 +351,7 @@ export default function RegisterForm() {
       <div className="space-y-5">
         <Field label="사진">
           <input
+            key={fileInputKey}
             type="file"
             accept="image/*"
             capture="environment"

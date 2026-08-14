@@ -166,7 +166,8 @@ export default function RegisterForm() {
   const productionCostNum = isFavorVendor ? Number(productionCost) || 0 : 0;
   const costNum = Number(cost) || 0;
   const priceNum = Number(price) || 0;
-  const stockNum = Number(stock) || 0;
+  // 재고를 비워두면 999(상시 재고로 간주)로 저장 — 실제로 수량 관리가 필요한 상품만 입력한다.
+  const stockNum = stock.trim() === '' ? 999 : Number(stock) || 0;
   const marginLevel = getMarginLevel(costNum, priceNum);
   const multiplier =
     costNum > 0 && priceNum > 0 ? String(Math.round((priceNum / costNum) * 100) / 100) : null;
@@ -494,9 +495,14 @@ export default function RegisterForm() {
               placeholder="새 거래처명 입력"
             />
           )}
-          <p className="mt-1.5 text-xs text-gray-500">
-            품번(자동): <span className="font-semibold text-gray-800">{codeLoading ? '계산 중...' : productCode}</span>
-            {' '}— 거래처에 따라 자동으로 매겨지며 직접 수정할 수 없습니다.
+        </Field>
+
+        <Field label="품번 (자동 배정)">
+          <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 py-2.5 text-lg font-bold tracking-wide text-gray-900">
+            {codeLoading ? '계산 중...' : productCode}
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            이 상품은 이 번호로 등록됩니다. 거래처에 따라 자동으로 매겨지며 직접 수정할 수 없습니다.
           </p>
         </Field>
 
@@ -559,7 +565,7 @@ export default function RegisterForm() {
             value={stock}
             onChange={(e) => setStock(e.target.value)}
             className="input"
-            placeholder="0"
+            placeholder="비워두면 999 (상시 재고)"
           />
         </Field>
 

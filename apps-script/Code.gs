@@ -166,14 +166,20 @@ function ensureColumnHeader_(sheet, col, headerText) {
 
 // 내부용 시트 M열: 원가(H) 대비 판매가(I) 배수. 3.5배 표준이어도 값을 그대로 표시한다.
 // ARRAYFORMULA가 열 전체를 스스로 채우므로, 이 열에는 절대 다른 값을 개별 setValue로 쓰면 안 됨.
+// 헤더 텍스트가 있어도 수식 자체는 없을 수 있음(마지막 남은 데이터 행을 지우면 수식이 든 M2 셀도
+// 같이 삭제됨) — 그래서 헤더가 아니라 M2 셀에 수식이 실제로 있는지를 기준으로 재생성 여부를 판단한다.
 function ensureMultiplierColumn_(sheet) {
   var header = sheet.getRange(1, INTERNAL_MULTIPLIER_COL).getValue();
   if (String(header).trim() === '') {
     sheet.getRange(1, INTERNAL_MULTIPLIER_COL).setValue('배수');
-    sheet.getRange(2, INTERNAL_MULTIPLIER_COL).setFormula(
-      '=ARRAYFORMULA(IF(H2:H="","",IF(H2:H=0,"",ROUND(I2:I/H2:H,2))))'
-    );
   }
+  var formulaCell = sheet.getRange(2, INTERNAL_MULTIPLIER_COL);
+  if (!formulaCell.getFormula()) {
+    formulaCell.setFormula('=ARRAYFORMULA(IF(H2:H="","",IF(H2:H=0,"",ROUND(I2:I/H2:H,2))))');
+  }
+  // 행 삽입/복사 과정에서 다른 셀의 서식(예: 날짜)이 옮겨 붙어 3.5가 "1900. 1. 2" 같은 날짜로
+  // 보이는 경우가 있어, 매번 일반 숫자 서식으로 고정한다.
+  sheet.getRange(1, INTERNAL_MULTIPLIER_COL, sheet.getMaxRows(), 1).setNumberFormat('0.00');
 }
 
 // A열(품번)이 비어있는 행 중 실제 마지막으로 데이터가 있는 행 번호를 반환.

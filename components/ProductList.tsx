@@ -34,6 +34,11 @@ interface EditDraft {
   stock: string;
 }
 
+// 재고를 비워두면 999(상시 재고로 간주)로 저장 — 실제로 수량 관리가 필요한 상품만 입력한다.
+function resolveStock(draft: EditDraft): number {
+  return draft.stock.trim() === '' ? 999 : Number(draft.stock) || 0;
+}
+
 // 제작가는 자사(페이버) 제품에만 의미가 있음 — 외부 거래처 상품은 우리가 만드는 게 아니라서 해당 없음.
 function isFavorVendor(draft: EditDraft): boolean {
   const vendorValue =
@@ -204,7 +209,7 @@ export default function ProductList() {
           productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
           cost: Number(editDraft.cost) || 0,
           price: Number(editDraft.price) || 0,
-          stock: Number(editDraft.stock) || 0
+          stock: resolveStock(editDraft)
         })
       });
       const data = await res.json();
@@ -226,7 +231,7 @@ export default function ProductList() {
                   productionCost: isFavorVendor(editDraft) ? Number(editDraft.productionCost) || 0 : 0,
                   cost: Number(editDraft.cost) || 0,
                   price: Number(editDraft.price) || 0,
-                  stock: Number(editDraft.stock) || 0
+                  stock: resolveStock(editDraft)
                 }
               : it
           )

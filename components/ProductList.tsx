@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { compressImage } from '@/lib/imageCompress';
-import { VENDOR_CUSTOM_OPTION } from '@/lib/constants';
+import { VENDOR_CUSTOM_OPTION, getMarginLevel, MARGIN_MESSAGES } from '@/lib/constants';
 import ConfirmModal from './ConfirmModal';
 
 interface ProductItem {
@@ -52,7 +52,7 @@ function toDraft(item: ProductItem, vendors: string[]): EditDraft {
   const vendor = item.vendor || '';
   const known = vendor && vendors.includes(vendor);
   return {
-    code: item.code,
+    code: String(item.code),
     name: item.name,
     option1: item.option1 || '',
     option2: item.option2 || '',
@@ -389,6 +389,7 @@ export default function ProductList() {
                         onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
                         className="input"
                       />
+                      <EditMarginHint cost={editDraft.cost} price={editDraft.price} />
                     </EditField>
                     <EditField label="재고">
                       <input
@@ -514,6 +515,36 @@ export default function ProductList() {
           onCancel={() => setPendingDelete(null)}
         />
       )}
+    </div>
+  );
+}
+
+function EditMarginHint({ cost, price }: { cost: string; price: string }) {
+  const costNum = Number(cost) || 0;
+  const priceNum = Number(price) || 0;
+  const marginLevel = getMarginLevel(costNum, priceNum);
+  const multiplier =
+    costNum > 0 && priceNum > 0 ? String(Math.round((priceNum / costNum) * 100) / 100) : null;
+
+  if (marginLevel === 'unknown' && !multiplier) return null;
+
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      {marginLevel !== 'unknown' && (
+        <p
+          className={
+            'text-xs font-medium ' +
+            (marginLevel === 'safe'
+              ? 'text-green-600'
+              : marginLevel === 'warn'
+              ? 'text-amber-600'
+              : 'text-red-600')
+          }
+        >
+          {MARGIN_MESSAGES[marginLevel]}
+        </p>
+      )}
+      {multiplier && <p className="text-xs text-gray-500">배수 {multiplier}배</p>}
     </div>
   );
 }

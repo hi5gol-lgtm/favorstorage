@@ -23,6 +23,7 @@ var CONFIG = {
   PRODUCT_SHEET_NAME: '상품',
   VENDOR_SHEET_NAME: '거래처목록',
   SELLER_SHEET_NAME: '상품',
+  LIVE_MEMO_SHEET_NAME: '라이브메모', // 내부용 스프레드시트 안 — 라이브 큐시트에서 쓰는 품번별 메모
   IMAGE_ROW_HEIGHT: 90,
   IMAGE_COL_WIDTH: 90
 };
@@ -55,6 +56,7 @@ function doGet(e) {
     if (action === 'vendors') return jsonOut_({ ok: true, vendors: getVendors_() });
     if (action === 'nextCode') return jsonOut_({ ok: true, code: getNextCode_(e.parameter.vendor) });
     if (action === 'list') return jsonOut_({ ok: true, items: listProducts_(Number(e.parameter.limit) || 100) });
+    if (action === 'liveMemos') return jsonOut_({ ok: true, memos: getLiveMemos_() });
 
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -74,6 +76,7 @@ function doPost(e) {
     if (body.action === 'updateImage') return jsonOut_(updateImage_(body));
     if (body.action === 'update') return jsonOut_(updateProduct_(body));
     if (body.action === 'delete') return jsonOut_(deleteProduct_(body));
+    if (body.action === 'saveLiveMemo') return jsonOut_(saveLiveMemo_(body));
 
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -410,6 +413,62 @@ function listProducts_(limit) {
     });
   }
   return items;
+}
+
+// ===== LIVE MEMO =====
+// 라이브 큐시트에서 품번별로 계속 고쳐 쓰는 메모(예: "10/3 방송 완판"). 상품 시트의 열 구조/수식은 건드리지 않도록
+// 내부용 스프레드시트에 별도 탭(품번 | 메모 | 수정일시)으로 둔다. 탭이 없으면 처음 저장할 때 만든다.
+
+function getLiveMemoSheet_(createIfMissing) {
+  var ss = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID);
+  var sheet = ss.getSheetByName(CONFIG.LIVE_MEMO_SHEET_NAME);
+  if (!sheet && createIfMissing) {
+    sheet = ss.insertSheet(CONFIG.LIVE_MEMO_SHEET_NAME);
+    sheet.getRange(1, 1, 1, 3).setValues([['품번', '메모', '수정일시']]);
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(2, 400);
+  }
+  return sheet;
+}
+
+function getLiveMemos_() {
+  var sheet = getLiveMemoSheet_(false);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
+  var memos = {};
+  for (var i = 0; i < values.length; i++) {
+    var code = String(values[i][0]).trim();
+    if (!code) continue;
+    var updatedAt = values[i][2] instanceof Date ? values[i][2].getTime() : null;
+    memos[code] = { memo: String(values[i][1] || ''), updatedAt: updatedAt };
+  }
+  return memos;
+}
+
+function saveLiveMemo_(body) {
+  var code = String(body.code || '').trim();
+  if (!code) return { ok: false, error: '품번이 없습니다' };
+  var memo = String(body.memo || '');
+
+  // 두 기기에서 동시에 새 품번 메모를 저장해도 행이 중복으로 생기지 않게 잠근다.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = getLiveMemoSheet_(true);
+    var now = new Date();
+    var lastRow = sheet.getLastRow();
+    var codes = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues() : [];
+    for (var i = 0; i < codes.length; i++) {
+      if (String(codes[i][0]).trim() === code) {
+        sheet.getRange(i + 2, 2, 1, 2).setValues([[memo, now]]);
+        return { ok: true, updatedAt: now.getTime() };
+      }
+    }
+    sheet.appendRow([code, memo, now]);
+    return { ok: true, updatedAt: now.getTime() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ===== SAVE =====

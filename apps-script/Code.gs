@@ -687,6 +687,114 @@ function deleteProduct_(body) {
   return { ok: true };
 }
 
+// ===== 시트 직접 수정 → 셀러용 자동 반영 =====
+// 내부용 '상품' 시트를 구글 시트에서 직접 고쳐도(값 수정, 행 삭제/추가, 정렬) 셀러용 시트가 따라오도록,
+// 내부용 스프레드시트에 설치형 onChange 트리거를 걸어 셀러용을 내부용의 거울로 다시 맞춘다.
+// - 방향은 내부용 → 셀러용 한 방향뿐: 셀러용에서 직접 고친 값은 다음 동기화 때 내부용 값으로 덮어써진다.
+// - 앱은 원래 내부용 시트를 직접 읽으므로 앱 쪽은 따로 할 일이 없다.
+// - 스크립트(앱 저장 등)가 쓴 변경은 트리거를 일으키지 않으므로 무한 반복은 생기지 않는다.
+// - 셀러용은 지금처럼 내부용과 같은 행 번호로 1:1 정렬을 유지한다(품번이 옵션끼리 같을 수 있어 품번으로 찾지 않음).
+
+// 최초 1회 스크립트 에디터에서 직접 실행 (권한 승인 필요). 다시 실행해도 트리거가 중복으로 생기지 않는다.
+function installSyncTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'onInternalSheetChange') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onInternalSheetChange').forSpreadsheet(CONFIG.INTERNAL_SHEET_ID).onChange().create();
+  syncSellerSheetNow();
+  Logger.log('동기화 트리거 설치 완료');
+}
+
+// 트리거가 부르는 함수 — 이름 끝에 _를 붙이면 트리거에서 부를 수 없으므로 붙이지 않는다.
+function onInternalSheetChange(e) {
+  if (e && e.changeType === 'FORMAT') return; // 서식만 바뀐 경우는 셀러용에 영향 없음
+  syncSellerSheet_();
+}
+
+// 에디터에서 지금 바로 맞추고 싶을 때 직접 실행
+function syncSellerSheetNow() {
+  Logger.log(JSON.stringify(syncSellerSheet_()));
+}
+
+function syncSellerSheet_() {
+  // 연달아 고칠 때 동시에 여러 번 돌지 않게 — 이미 돌고 있으면 그 실행이 최신 상태까지 맞춘다.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { ok: false, error: '다른 동기화가 진행 중' };
+  try {
+    var internalSheet = SpreadsheetApp.openById(CONFIG.INTERNAL_SHEET_ID).getSheetByName(CONFIG.PRODUCT_SHEET_NAME);
+    var sellerSs = SpreadsheetApp.openById(CONFIG.SELLER_SHEET_ID);
+    var sellerSheet = sellerSs.getSheetByName(CONFIG.SELLER_SHEET_NAME);
+    if (!internalSheet || !sellerSheet) return { ok: false, error: '시트를 찾을 수 없습니다' };
+
+    var internalCount = getLastDataRow_(internalSheet) - 1;
+    var rowCount = Math.max(internalCount, getLastDataRow_(sellerSheet) - 1);
+    if (rowCount <= 0) return { ok: true, changedRows: 0 };
+    if (sellerSheet.getMaxRows() < rowCount + 1) {
+      sellerSheet.insertRowsAfter(sellerSheet.getMaxRows(), rowCount + 1 - sellerSheet.getMaxRows());
+    }
+
+    var internal = internalCount > 0 ? internalSheet.getRange(2, 1, internalCount, INTERNAL_IMAGE_URL_COL).getValues() : [];
+    var seller = sellerSheet.getRange(2, 1, rowCount, SELLER_HEADERS.length).getValues();
+
+    // 셀러용 컬럼: 품번(A) [이미지(B)] 상품명(C) 옵션1(D) 옵션2(E) 판매가(F) 재고(G) 상품설명(H)
+    var codes = [];
+    var fields = [];
+    var changedRows = 0;
+    var imageRows = [];
+    for (var i = 0; i < internalCount; i++) {
+      var r = internal[i];
+      var code = r[0];
+      var rowFields = [r[2], r[3], r[4], r[9], r[10], r[11]];
+      codes.push([code]);
+      fields.push(rowFields);
+
+      var current = seller[i];
+      var currentFields = current.slice(2, 8);
+      var codeChanged = String(current[0]) !== String(code);
+      if (codeChanged || rowFields.join('\u0001') !== currentFields.map(String).join('\u0001')) changedRows++;
+
+      // 사진: 품번이 바뀐 행(행 삭제·정렬로 밀린 경우)이거나 이미지 URL이 달라진 행만 다시 넣는다 — 매번 다 넣으면 느리다.
+      var url = String(r[INTERNAL_IMAGE_URL_COL - 1] || '');
+      var currentUrl = cellImageUrl_(current[1]);
+      var imageDiffers = currentUrl === null ? codeChanged : currentUrl !== url;
+      if (imageDiffers) imageRows.push({ row: i + 2, url: url });
+    }
+
+    if (changedRows > 0) {
+      sellerSheet.getRange(2, 1, internalCount, 1).setValues(codes);
+      sellerSheet.getRange(2, 3, internalCount, 6).setValues(fields);
+    }
+    imageRows.forEach(function (item) {
+      if (item.url) {
+        setCellImage_(sellerSheet, item.row, 2, item.url);
+        sellerSheet.setRowHeight(item.row, CONFIG.IMAGE_ROW_HEIGHT);
+      } else {
+        sellerSheet.getRange(item.row, 2).clearContent();
+      }
+    });
+
+    // 내부용에서 행을 지워 셀러용에만 남은 꼬리 행은 비운다.
+    var clearedRows = rowCount - internalCount;
+    if (clearedRows > 0) sellerSheet.getRange(internalCount + 2, 1, clearedRows, SELLER_HEADERS.length).clearContent();
+
+    return { ok: true, changedRows: changedRows, imageRows: imageRows.length, clearedRows: clearedRows };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 셀 안 이미지의 원본 URL. 알 수 없으면 null, 이미지가 없으면 ''.
+function cellImageUrl_(value) {
+  if (value === '' || value === null) return '';
+  if (typeof value === 'string') return value; // setCellImage_ 폴백으로 URL 텍스트만 들어간 경우
+  try {
+    if (value && typeof value.getUrl === 'function') return value.getUrl() || null;
+  } catch (err) {
+    // 아래로
+  }
+  return null;
+}
+
 // 구글 시트는 고정된 행(헤더)을 제외한 행을 전부 지울 수 없다 — 남은 데이터가 1행뿐일 때
 // 그 행을 지우면 이 제약에 걸리므로, 지우기 전에 여분의 빈 행을 하나 만들어둔다.
 function ensureSpareRow_(sheet) {

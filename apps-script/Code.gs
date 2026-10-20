@@ -473,7 +473,75 @@ function saveLiveMemo_(body) {
 
 // ===== SAVE =====
 
+// 인터넷이 끊겨 응답만 못 받은 경우(서버에는 이미 저장됨) 등록하는 사람은 저장을 다시 누르게 되고,
+// 그때마다 서버가 새 품번을 매겨서 같은 상품이 번호를 두세 개 잡아먹는 일이 있었다. 앱은 재시도 때
+// 같은 saveId를 다시 보내므로, 여기서 이미 만든 품번을 그대로 돌려주고 새 행은 만들지 않는다.
+// 이 기록을 상품 시트의 새 컬럼에 두지 않는 이유: sortByCode_와 시트 필터 정렬이 A~M(+O)만 옮기기
+// 때문에 그 바깥 컬럼은 정렬 한 번에 다른 상품의 행으로 어긋난다.
+var SAVE_ID_PROP = 'recentSaveIds';
+var SAVE_ID_TTL_MS = 24 * 60 * 60 * 1000;
+var SAVE_ID_KEEP = 200; // 속성 하나의 크기 제한(9KB)에 걸리지 않도록 최근 것만 남긴다
+
+function readRecentSaves_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(SAVE_ID_PROP);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) || {};
+  } catch (err) {
+    return {}; // 값이 깨졌으면 중복 방지만 포기하고 저장은 정상 진행
+  }
+}
+
+function findRecentSave_(saveId) {
+  var entry = readRecentSaves_()[saveId];
+  if (!entry || !entry.code) return null;
+  if (Date.now() - Number(entry.ts || 0) > SAVE_ID_TTL_MS) return null;
+  return String(entry.code);
+}
+
+function rememberSave_(saveId, productCode) {
+  var saves = readRecentSaves_();
+  saves[saveId] = { code: String(productCode), ts: Date.now() };
+  var cutoff = Date.now() - SAVE_ID_TTL_MS;
+  var ids = Object.keys(saves).filter(function (id) {
+    return saves[id] && Number(saves[id].ts || 0) > cutoff;
+  });
+  ids.sort(function (a, b) {
+    return Number(saves[b].ts || 0) - Number(saves[a].ts || 0);
+  });
+  var kept = {};
+  ids.slice(0, SAVE_ID_KEEP).forEach(function (id) {
+    kept[id] = saves[id];
+  });
+  PropertiesService.getScriptProperties().setProperty(SAVE_ID_PROP, JSON.stringify(kept));
+}
+
 function saveProduct_(body) {
+  if (!String(body.productName || '').trim()) {
+    return { ok: false, error: '상품명은 필수입니다.' };
+  }
+  var saveId = String(body.saveId || '').trim();
+
+  // 저장 전체를 잠근다 — 재시도로 같은 상품이 두 줄 들어가는 것과, 두 기기가 동시에 저장해서
+  // 같은 품번을 함께 집어가는 것을 둘 다 막는다(품번은 저장 시점에 최댓값+1로 계산하므로).
+  var lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    if (saveId) {
+      var alreadySavedCode = findRecentSave_(saveId);
+      if (alreadySavedCode) {
+        return { ok: true, productCode: alreadySavedCode, alreadySaved: true };
+      }
+    }
+    var result = insertProduct_(body);
+    if (saveId && result.ok) rememberSave_(saveId, result.productCode);
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function insertProduct_(body) {
   var productName = String(body.productName || '').trim();
   var option1 = String(body.productOption1 || '').trim();
   var option2 = String(body.productOption2 || '').trim();

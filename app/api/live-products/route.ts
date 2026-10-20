@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { callAppsScriptGet } from '@/lib/appsScript';
+import { PRODUCT_LIST_LIMIT } from '@/lib/constants';
 
 type MemoMap = Record<string, { memo: string; updatedAt: number | null }>;
 
@@ -7,7 +8,7 @@ type MemoMap = Record<string, { memo: string; updatedAt: number | null }>;
 export async function GET() {
   try {
     const [data, memoData] = await Promise.all([
-      callAppsScriptGet('list', { limit: '2000' }),
+      callAppsScriptGet('list', { limit: String(PRODUCT_LIST_LIMIT) }),
       // 라이브메모는 Apps Script 재배포 전이면 'unknown action'으로 실패한다 — 메모 없이 목록은 보여준다.
       callAppsScriptGet('liveMemos').catch(() => null)
     ]);

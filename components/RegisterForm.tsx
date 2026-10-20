@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import {
   calcAutoPrice,
@@ -19,6 +20,16 @@ const DRAFT_KEY = 'registerFormDraft';
 
 interface Draft {
   [key: string]: string | string[];
+}
+
+// 저장 요청마다 붙이는 고유 ID. 인터넷이 끊겨 응답만 못 받았을 때 다시 저장을 눌러도 서버가
+// 같은 요청으로 알아보고 품번을 새로 따지 않는다(apps-script의 saveProduct_ 참고).
+// 폼 내용이 바뀌면 다른 상품이므로 새로 발급한다.
+function makeSaveId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function loadDraft(): Draft | null {
@@ -58,6 +69,7 @@ export default function RegisterForm() {
   const [suggestError, setSuggestError] = useState('');
 
   const [saving, setSaving] = useState(false);
+  const [lastSavedCode, setLastSavedCode] = useState('');
   const [toast, setToast] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
@@ -65,6 +77,7 @@ export default function RegisterForm() {
 
   const codeRequestSeq = useRef(0);
   const isFirstSave = useRef(true);
+  const saveIdRef = useRef('');
 
   const vendorValue = vendorSelect === VENDOR_CUSTOM_OPTION ? customVendor.trim() : vendorSelect;
   // 제작가는 자사(페이버) 제품에만 의미가 있음 — 외부 거래처 상품은 우리가 만드는 게 아니라서 해당 없음.
@@ -129,6 +142,9 @@ export default function RegisterForm() {
       isFirstSave.current = false;
       return;
     }
+    // 내용이 바뀌었으면 다른 상품이므로 재시도용 ID를 버린다 — 저장 실패 후 내용을 고쳐 저장하면
+    // 서버가 "이미 저장된 요청"으로 착각해 새 상품을 건너뛰면 안 되기 때문.
+    saveIdRef.current = '';
     try {
       sessionStorage.setItem(
         DRAFT_KEY,
@@ -306,10 +322,14 @@ export default function RegisterForm() {
         }
       }
 
+      // 실패 후 다시 누를 때까지 같은 ID를 유지한다 (중복 등록 방지).
+      if (!saveIdRef.current) saveIdRef.current = makeSaveId();
+
       const res = await fetch('/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          saveId: saveIdRef.current,
           productName: productName.trim(),
           productOption1: option1Value,
           productOption2: option2Value,
@@ -335,7 +355,13 @@ export default function RegisterForm() {
         setVendors((prev) => [...prev, vendorValue]);
       }
 
-      setToast(`저장되었습니다. (품번 ${data.productCode})`);
+      saveIdRef.current = '';
+      setLastSavedCode(String(data.productCode));
+      setToast(
+        data.alreadySaved
+          ? `이미 저장된 상품입니다. (품번 ${data.productCode})`
+          : `저장되었습니다. (품번 ${data.productCode})`
+      );
       resetForm();
     } catch (err) {
       setToast(`저장 중 오류가 발생했습니다: ${String(err)}`);
@@ -601,6 +627,15 @@ export default function RegisterForm() {
 
       <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto max-w-md">
+          {lastSavedCode && (
+            // 등록하는 사람이 잘못 입력하는 일이 많아서, 저장 직후 그 상품을 바로 고칠 수 있게 띄운다.
+            <Link
+              href={`/list?code=${lastSavedCode}`}
+              className="mb-2 block rounded-xl border border-gray-300 py-2.5 text-center text-sm font-medium text-gray-700 active:bg-gray-100"
+            >
+              방금 등록한 {lastSavedCode} 수정하기 →
+            </Link>
+          )}
           <button
             type="button"
             onClick={handleSave}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { compressImage } from '@/lib/imageCompress';
 import { VENDOR_CUSTOM_OPTION, getMarginLevel, MARGIN_MESSAGES } from '@/lib/constants';
 import ConfirmModal from './ConfirmModal';
@@ -80,6 +80,29 @@ export default function ProductList() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [vendors, setVendors] = useState<string[]>([]);
   const [sorting, setSorting] = useState(false);
+  const [query, setQuery] = useState('');
+
+  // 등록 직후 "방금 등록한 ○○ 수정하기"로 들어오면(/list?code=5273) 그 상품을 찾아 수정 상태로 펼쳐준다.
+  // useSearchParams 대신 주소를 직접 읽는다 — 이 화면은 서버에서 미리 렌더할 내용이 없고,
+  // Suspense 경계 없이 쓰려면 이 방식이 안전하다.
+  const pendingEditCode = useRef<string | null>(null);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code) return;
+    pendingEditCode.current = code;
+    setQuery(code);
+  }, []);
+
+  useEffect(() => {
+    const code = pendingEditCode.current;
+    if (!code || items.length === 0 || vendors.length === 0) return;
+    pendingEditCode.current = null;
+    const target = items.find((it) => String(it.code) === code);
+    if (!target) return;
+    setEditingRow(target.row);
+    setEditDraft(toDraft(target, vendors));
+  }, [items, vendors]);
 
   useEffect(() => {
     loadList();
@@ -256,12 +279,33 @@ export default function ProductList() {
   if (loading) return <p className="px-4 py-6 text-sm text-gray-500">불러오는 중...</p>;
   if (error) return <p className="px-4 py-6 text-sm text-red-600">{error}</p>;
 
-  const visibleItems = onlyMissing ? items.filter((it) => !it.imageUrl) : items;
+  const normalizedQuery = query.trim().toLowerCase();
+  const searchedItems = normalizedQuery
+    ? items.filter((it) =>
+        [String(it.code), it.name, it.vendor, it.vendorCode].some((field) =>
+          String(field || '').toLowerCase().includes(normalizedQuery)
+        )
+      )
+    : items;
+  const visibleItems = onlyMissing ? searchedItems.filter((it) => !it.imageUrl) : searchedItems;
 
   if (items.length === 0) return <p className="px-4 py-6 text-sm text-gray-500">등록된 상품이 없습니다.</p>;
 
   return (
     <div>
+      <div className="px-4 pt-3">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="input"
+          placeholder="품번·상품명·거래처로 검색"
+        />
+        {normalizedQuery && (
+          <p className="mt-1 text-xs text-gray-500">검색 결과 {searchedItems.length}개</p>
+        )}
+      </div>
+
       <div className="flex items-center gap-2 px-4 py-2 text-sm">
         <button
           type="button"
@@ -434,6 +478,7 @@ export default function ProductList() {
                     <img
                       src={item.imageUrl}
                       alt={item.name}
+                      loading="lazy"
                       className="h-16 w-16 shrink-0 rounded-lg object-cover"
                     />
                   ) : (

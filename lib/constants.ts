@@ -30,3 +30,7 @@ export const MARGIN_MESSAGES: Record<MarginLevel, string> = {
 };
 
 export const VENDOR_CUSTOM_OPTION = '__custom__';
+
+// Apps Script의 list는 '마지막 N행'만 잘라서 내려주므로, 이 값이 상품 수보다 작으면
+// 오래된 상품이 목록에서 조용히 빠진다(이전 기본값 100 때문에 실제로 그랬음).
+export const PRODUCT_LIST_LIMIT = 5000;

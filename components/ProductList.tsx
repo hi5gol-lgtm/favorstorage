@@ -75,6 +75,8 @@ export default function ProductList() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [deletingRow, setDeletingRow] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProductItem | null>(null);
+  // 사진을 눌러서 교체하는 구조라 모바일에서 잘못 터치될 수 있어, 올리기 전에 한 번 확인받는다.
+  const [pendingImage, setPendingImage] = useState<{ item: ProductItem; file: File } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -167,7 +169,7 @@ export default function ProductList() {
           prev.map((it) => (it.row === item.row ? { ...it, imageUrl: data.imageUrl } : it))
         );
       } else {
-        setError(`사진 추가 실패: ${data.error || '알 수 없는 오류'}`);
+        setError(`사진 저장 실패: ${data.error || '알 수 없는 오류'}`);
       }
     } catch (err) {
       setError(`사진 처리 중 오류: ${String(err)}`);
@@ -474,13 +476,32 @@ export default function ProductList() {
               ) : (
                 <div className="flex items-center gap-3">
                   {item.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.imageUrl}
-                      alt={item.name}
-                      loading="lazy"
-                      className="h-16 w-16 shrink-0 rounded-lg object-cover"
-                    />
+                    // 사진을 눌러서 바로 교체 — 잘못 찍힌 사진을 고치려면 예전에는 상품을 지우고
+                    // 다시 등록할 수밖에 없었다. 신규 등록(RegisterForm)과 달리 capture를 걸지 않는다:
+                    // 교체는 이미 찍어둔 사진에서 고르는 경우가 많아 카메라로 바로 보내면 불편하다.
+                    <label className="relative size-16 shrink-0 cursor-pointer active:opacity-70">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        loading="lazy"
+                        className="size-16 rounded-lg object-cover"
+                      />
+                      <span className="absolute inset-x-0 bottom-0 rounded-b-lg bg-black/60 py-0.5 text-center text-[10px] leading-tight text-white">
+                        {uploadingRow === item.row ? '교체중' : '사진교체'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingRow !== null}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setPendingImage({ item, file });
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
                   ) : (
                     <label className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[11px] text-gray-500 active:bg-gray-50">
                       {uploadingRow === item.row ? (
@@ -549,6 +570,23 @@ export default function ProductList() {
             </li>
           ))}
         </ul>
+      )}
+
+      {pendingImage && (
+        <ConfirmModal
+          message={
+            `품번 ${pendingImage.item.code} "${pendingImage.item.name}"의 사진을 새로 올린 사진으로 바꿉니다.\n\n` +
+            `지금 사진은 구글 드라이브 휴지통으로 들어갑니다 — 잘못 바꿨으면 휴지통에서 ` +
+            `${pendingImage.item.code}_ 로 시작하는 파일을 30일 안에 복구할 수 있습니다.`
+          }
+          confirmLabel="교체"
+          onConfirm={() => {
+            const target = pendingImage;
+            setPendingImage(null);
+            handleAddImage(target.item, target.file);
+          }}
+          onCancel={() => setPendingImage(null)}
+        />
       )}
 
       {pendingDelete && (

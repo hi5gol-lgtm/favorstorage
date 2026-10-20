@@ -698,6 +698,10 @@ function updateImage_(body) {
     return { ok: false, error: '품번이 일치하지 않습니다. (해당 행이 이미 변경되었을 수 있습니다)' };
   }
 
+  // 교체인 경우 옛 사진이 드라이브에 그대로 남아 쓰레기가 쌓이므로, 시트를 다 고친 뒤 지운다
+  // (먼저 지우면 시트 쓰기가 실패했을 때 사진만 사라진다).
+  var previousImageUrl = String(internalSheet.getRange(row, INTERNAL_IMAGE_URL_COL).getValue() || '');
+
   var driveFile = saveImageToDrive_(body.imageBase64, body.imageMimeType || 'image/jpeg', productCode);
 
   internalSheet.getRange(row, INTERNAL_IMAGE_URL_COL).setValue(driveFile.url);
@@ -715,6 +719,10 @@ function updateImage_(body) {
       sellerSheet.setRowHeight(row, CONFIG.IMAGE_ROW_HEIGHT);
       sellerSheet.setColumnWidth(2, CONFIG.IMAGE_COL_WIDTH);
     }
+  }
+
+  if (previousImageUrl && previousImageUrl !== driveFile.url) {
+    deleteDriveFileByUrl_(previousImageUrl);
   }
 
   return { ok: true, imageUrl: driveFile.url };

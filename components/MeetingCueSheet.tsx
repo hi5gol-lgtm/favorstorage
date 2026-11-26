@@ -50,7 +50,6 @@ interface CueState {
   filter: FilterMode;
   category: string;
   material: string;
-  other: Record<string, number>;
   bulk: boolean;
 }
 
@@ -76,7 +75,7 @@ function writeJson(key: string, value: unknown) {
     // 저장 공간을 못 쓰는 환경이어도 화면은 계속 동작하게 둔다.
   }
 }
-const EMPTY_STATE: CueState = { cue: [], done: [], current: '', sort: 'code', filter: 'all', category: 'all', material: 'all', other: {}, bulk: false };
+const EMPTY_STATE: CueState = { cue: [], done: [], current: '', sort: 'code', filter: 'all', category: 'all', material: 'all', bulk: false };
 // 재고 999 = 상시 재고로 간주하는 값이라 화면에 표시하지 않는다.
 const UNLIMITED_STOCK = 999;
 
@@ -99,7 +98,6 @@ function loadState(): CueState {
       filter: ['all', 'todo', 'done'].includes(parsed.filter) ? parsed.filter : 'all',
       category: typeof parsed.category === 'string' ? parsed.category : 'all',
       material: typeof parsed.material === 'string' ? parsed.material : 'all',
-      other: parsed.other && typeof parsed.other === 'object' ? parsed.other : {},
       bulk: parsed.bulk === true
     };
   } catch {
@@ -499,7 +497,6 @@ export default function MeetingCueSheet() {
             )}
             {visible.map((p) => {
               const isCurrent = p.code === state.current;
-              const other = state.other[p.code];
               const flagged = internal && (p.low || p.odd);
               return (
                 <div
@@ -517,11 +514,6 @@ export default function MeetingCueSheet() {
                       </p>
                       <p className="text-lg font-semibold text-rose-600">
                         {formatPrice(p.price)}
-                        {other && p.price < other && (
-                          <span className="ml-2 rounded-lg bg-green-100 px-2 py-0.5 text-sm font-bold text-green-700">
-                            타사 {other.toLocaleString('ko-KR')}원 · {(other - p.price).toLocaleString('ko-KR')}원 저렴
-                          </span>
-                        )}
                       </p>
                       {flagged && (
                         <p className="text-sm text-amber-800">
@@ -577,38 +569,13 @@ export default function MeetingCueSheet() {
                     <span className="text-3xl leading-tight font-bold break-keep sm:pt-1 sm:text-4xl">{current.name}</span>
                   </h1>
                   <p className="mt-2 text-4xl font-extrabold text-rose-600 sm:text-5xl">{formatPrice(current.price)}</p>
-                  {/* 타사 판매가 — 입력하면 우리가 더 저렴할 때 차이가 표시된다 */}
-                  <section className="mt-5 rounded-2xl border-2 border-gray-200 bg-white p-4">
-                    <h2 className="text-xl font-bold text-gray-500">타사 판매가</h2>
-                    <input
-                      inputMode="numeric"
-                      value={state.other[current.code] ? String(state.other[current.code]) : ''}
-                      onChange={(e) => {
-                        const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-                        setState((st) => {
-                          const other = { ...st.other };
-                          if (n > 0) other[current.code] = n;
-                          else delete other[current.code];
-                          return { ...st, other };
-                        });
-                      }}
-                      placeholder="입력"
-                      className="mt-2 w-full rounded-xl border-2 border-gray-300 p-3 text-right text-3xl font-bold focus:border-gray-900 focus:outline-none"
-                    />
-                    {state.other[current.code] && current.price < state.other[current.code] && (
-                      <p className="mt-3 text-2xl font-bold text-green-700">
-                        타사보다 {(state.other[current.code] - current.price).toLocaleString('ko-KR')}원 저렴 (
-                        {Math.round(((state.other[current.code] - current.price) / state.other[current.code]) * 100)}%)
-                      </p>
-                    )}
-                    {internal && (
-                      <p className="mt-3 rounded-xl bg-amber-50 p-3 text-base text-amber-900">
-                        내부용 · 기존 판매가 {formatPrice(current.origPrice)}
-                        {current.low ? ' · 낮게 잡은 상품' : ''}
-                        {current.odd ? ' · 원가·판매가 확인 필요' : ''}
-                      </p>
-                    )}
-                  </section>
+                  {internal && (
+                    <p className="mt-4 rounded-xl bg-amber-50 p-3 text-base text-amber-900">
+                      내부용 · 기존 판매가 {formatPrice(current.origPrice)}
+                      {current.low ? ' · 낮게 잡은 상품' : ''}
+                      {current.odd ? ' · 원가·판매가 확인 필요' : ''}
+                    </p>
+                  )}
 
                   <div className="mt-5 flex flex-col gap-3">
                     <OptionRow label="색상" values={splitOptions(current.option1)} />
